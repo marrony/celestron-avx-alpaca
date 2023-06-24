@@ -1,5 +1,10 @@
 "use strict";
-const express = require('express')
+
+import express from 'express'
+import { CelestronAVX } from './serial.js'
+
+console.log(CelestronAVX)
+
 const app = express()
 const port = 3000
 
