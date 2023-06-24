@@ -121,7 +121,21 @@ const telescope = {
   },
 
   // features
+  canslew: {
+    get: function(req) {
+      return true
+    },
+    set: function (req) {}
+  },
+
   canslewasync: {
+    get: function(req) {
+      return true
+    },
+    set: function (req) {}
+  },
+
+  canslewaltaz: {
     get: function(req) {
       return true
     },
@@ -166,6 +180,20 @@ const telescope = {
   canmoveaxis: {
     get: function(req) {
       return false
+    },
+    set: function (req) {}
+  },
+
+  cansetrightascensionrate: {
+    get: function(req) {
+      return true
+    },
+    set: function (req) {}
+  },
+
+  cansetdeclinationrate: {
+    get: function(req) {
+      return true
     },
     set: function (req) {}
   },
