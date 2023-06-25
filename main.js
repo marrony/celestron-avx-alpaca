@@ -71,10 +71,13 @@ const telescope = {
   },
 
   slewing: {
+    value: false,
     get: async function (req) {
-      return await celestron.isGotoInProgress()
+      return this.slewing.value
     },
-    set: async function (req) {}
+    set: async function (req) {
+      throw new Error("slewing property is read-only")
+    }
   },
 
   tracking: {
@@ -150,27 +153,41 @@ const telescope = {
     }
   },
 
+  abortslew: {
+    get: async function (req) {},
+    set: async function (req) {
+      this.slewing.value = false
+      this.tracking.value = true
+    }
+  },
+
   moveaxis: {
     get: async function (req) {},
     set: async function (req) {
       const axis = parseInt(req.body.Axis)
       const rate = parseFloat(req.body.Rate)
 
-      if (axis === 0) {
-        await celestron.slewAzmVariable(rate)
+      if (rate !== 0) {
+        await celestron.setTrackingMode(TrackingModes.Off)
       }
 
-      //if (this.tracking.value) {
-      //  await celestron.setTrackingMode(TrackingModes.Off)
-      //  this.tracking.value = false
-      //}
+      if (axis === 0 || axis === 1) {
+        await celestron.slewVariable(axis, rate)
+      }
+
+      this.slewing.value = rate !== 0
+      this.tracking.value = rate === 0
+
+      if (rate === 0) {
+        await celestron.setTrackingMode(TrackingModes.EqNorth)
+      }
     }
   },
 
   // features
   canslew: {
     get: function (req) {
-      return true
+      return false
     },
     set: function (req) {}
   },
@@ -184,7 +201,7 @@ const telescope = {
 
   canslewaltaz: {
     get: function (req) {
-      return true
+      return false
     },
     set: function (req) {}
   },
@@ -224,13 +241,6 @@ const telescope = {
     set: function (req) {}
   },
 
-  canmoveaxis: {
-    get: function (req) {
-      return true
-    },
-    set: function (req) {}
-  },
-
   cansetrightascensionrate: {
     get: function (req) {
       return true
@@ -245,14 +255,79 @@ const telescope = {
     set: function (req) {}
   },
 
+  cansetguiderates: {
+    get: function (req) {
+      return false
+    },
+    set: function (req) {}
+  },
+
+  cansetpark: {
+    get: function (req) {
+      return true
+    },
+    set: function (req) {}
+  },
+
+  cansetpierside: {
+    get: function (req) {
+      return false
+    },
+    set: function (req) {}
+  },
+
+  canmoveaxis: {
+    get: function (req) {
+      return true
+    },
+    set: function (req) {}
+  },
+
   axisrates: {
     get: function (req) {
       const axis = parseInt(req.query.Axis)
+      //360/(23*60*60 + 56*60) = 0.004178272981
+      //361/(24*60*60)         = 0.004178240741
+
+      const siderealRate = 361 / (24*60*60)
+
       return [
         {
+          Minimum: 2*siderealRate,
+          Maximum: 2*siderealRate
+        },
+        {
+          Minimum: 4*siderealRate,
+          Maximum: 4*siderealRate
+        },
+        {
+          Minimum: 8*siderealRate,
+          Maximum: 8*siderealRate
+        },
+        {
+          Minimum: 16*siderealRate,
+          Maximum: 16*siderealRate
+        },
+        {
+          Minimum: 32*siderealRate,
+          Maximum: 32*siderealRate
+        },
+        {
+          Minimum: 0.3,
+          Maximum: 0.3
+        },
+        {
           Minimum: 1,
-          Maxinum: 1
-        }
+          Maximum: 1
+        },
+        {
+          Minimum: 2,
+          Maximum: 2
+        },
+        {
+          Minimum: 4,
+          Maximum: 4
+        },
       ]
     },
     set: function (req) {}
@@ -274,12 +349,13 @@ const telescope = {
 }
 
 app.all('/api/v1/telescope/0/:property', async (req, res) => {
-  console.log(req.method, req.url)
+  //console.log(req.method, req.url)
   //console.log(req.query)
 
   const property = telescope[req.params.property]
 
   if (!property || !(req.method === 'GET' || req.method === 'PUT')) {
+    console.log(req.method, req.url)
     console.log('Not implemented')
     return res.status(500).send('Not implemented')
   }
@@ -294,8 +370,11 @@ app.all('/api/v1/telescope/0/:property', async (req, res) => {
     data.Value = await property.get.call(telescope, req)
     data.ClientTransactionID = parseInt(req.query.ClientTransactionID)
     data.ServerTransactionID = parseInt(req.query.ClientTransactionID)
+
+    console.log(req.method, req.url, data.Value)
   } else if (req.method === 'PUT') {
-    console.log(req.body)
+    console.log(req.method, req.url, req.body)
+
     await property.set.call(telescope, req)
     data.ClientTransactionID = parseInt(req.body.ClientTransactionID)
     data.ServerTransactionID = parseInt(req.body.ClientTransactionID)

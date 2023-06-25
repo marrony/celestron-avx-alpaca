@@ -228,14 +228,17 @@ export class CelestronAVX {
     if (buffer.length !== 1) throw new Error('Invalid size')
   }
 
-  async slewAzmVariable(rate) {
-    const rateHigh = Math.trunc((rate * 4) / 256)
-    const rateLow = Math.trunc((rate * 4) % 256)
+  async slewVariable(axis, rate) {
+    const rateAbs = Math.abs(rate * 60 * 60) //arcseconds/second
+    const rateHigh = Math.trunc((rateAbs * 4) / 256)
+    const rateLow = Math.trunc((rateAbs * 4) % 256)
+    const direction = rate >= 0 ? 6 : 7
+    const axisOp = axis === 0 ? 16 : 17
 
-    console.log('MoveAzm', rate, rateHigh, rateLow)
+    console.log('MoveAzm', rate, rateAbs, rateHigh, rateLow)
 
     const buffer = await this.port.send_command(Buffer.from([
-      80, 3, 16, 6, rateHigh, rateLow, 0, 0
+      0x50, 3, axisOp, direction, rateHigh, rateLow, 0, 0
     ]))
 
     if (buffer.length !== 1) throw new Error('Invalid size')
