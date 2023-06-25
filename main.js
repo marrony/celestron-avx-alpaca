@@ -11,7 +11,7 @@ import {
 const app = express()
 const port = 3000
 
-const celestron = new CelestronAVX()
+const celestron = new CelestronAVX({simulator: true})
 
 app.use(express.json())
 app.use(express.urlencoded({ extended: true }))
@@ -164,8 +164,24 @@ const telescope = {
   moveaxis: {
     get: async function (req) {},
     set: async function (req) {
+      if (req.body.Axis === undefined) {
+        throw new Error("Axis is required")
+      }
+
+      if (req.body.Rate === undefined) {
+        throw new Error("Rate is required")
+      }
+
       const axis = parseInt(req.body.Axis)
       const rate = parseFloat(req.body.Rate)
+
+      if (axis === null || isNaN(axis)) {
+        throw new Error("Invalid axis")
+      }
+
+      if (rate === null || isNaN(rate)) {
+        throw new Error("Invalid rate")
+      }
 
       if (rate !== 0) {
         await celestron.setTrackingMode(TrackingModes.Off)
@@ -283,6 +299,54 @@ const telescope = {
     set: function (req) {}
   },
 
+  name: {
+    get: function (req) {
+      return 'Telescope'
+    },
+    set: function (req) {
+    }
+  },
+
+  interfaceversion: {
+    get: function (req) {
+      return 0
+    },
+    set: function (req) {
+    }
+  },
+
+  driverinfo: {
+    get: function (req) {
+      return 'Telescope'
+    },
+    set: function (req) {
+    }
+  },
+
+  driverversion: {
+    get: function (req) {
+      return '0.0.1'
+    },
+    set: function (req) {
+    }
+  },
+
+  description: {
+    get: function (req) {
+      return 'Telescope'
+    },
+    set: function (req) {
+    }
+  },
+
+  supportedactions: {
+    get: function (req) {
+      return []
+    },
+    set: function (req) {
+    }
+  },
+
   axisrates: {
     get: function (req) {
       const axis = parseInt(req.query.Axis)
@@ -348,16 +412,28 @@ const telescope = {
   },
 }
 
-app.all('/api/v1/telescope/0/:property', async (req, res) => {
+app.all('/api/v1/:device_type/:device_number/:property', async (req, res) => {
   //console.log(req.method, req.url)
   //console.log(req.query)
 
+  if (req.params.device_type !== 'telescope') {
+    return res.status(400).send('Invalid device type')
+  }
+
+  if (req.params.device_number !== '0') {
+    return res.status(400).send('Invalid device number')
+  }
+
+  if (!(req.method === 'GET' || req.method === 'PUT')) {
+    return res.status(405).send('Method not allowed')
+  }
+
   const property = telescope[req.params.property]
 
-  if (!property || !(req.method === 'GET' || req.method === 'PUT')) {
+  if (!property) {
     console.log(req.method, req.url)
     console.log('Not implemented')
-    return res.status(500).send('Not implemented')
+    return res.status(405).send('Not implemented')
   }
 
   var data = {
@@ -366,18 +442,64 @@ app.all('/api/v1/telescope/0/:property', async (req, res) => {
     Value: ''
   }
 
-  if (req.method === 'GET') {
-    data.Value = await property.get.call(telescope, req)
-    data.ClientTransactionID = parseInt(req.query.ClientTransactionID)
-    data.ServerTransactionID = parseInt(req.query.ClientTransactionID)
+  const fixCase = (obj) => {
+    Object.keys(obj).forEach(k => {
+      const lower = k.toLowerCase()
 
+      if (lower === 'clienttransactionid' || lower === 'clientid') {
+        obj[lower] = obj[k]
+      }
+    })
+  }
+
+  fixCase(req.query)
+  fixCase(req.body)
+
+  if (req.method === 'GET') {
+
+    const clientid = parseInt(req.query.clientid)
+    if (clientid === null || isNaN(clientid) || clientid < 0) {
+      return res.status(400).send('Invalid ClientID')
+    }
+
+		data.ClientTransactionID = parseInt(req.query.clienttransactionid)
+		if (data.ClientTransactionID === null ||
+				isNaN(data.ClientTransactionID) ||
+				data.ClientTransactionID < 0) {
+			return res.status(400).send('Invalid ClientTransactionID')
+    }
+
+    data.ServerTransactionID = parseInt(req.query.clienttransactionid)
+
+    data.Value = await property.get.call(telescope, req)
     console.log(req.method, req.url, data.Value)
   } else if (req.method === 'PUT') {
     console.log(req.method, req.url, req.body)
 
-    await property.set.call(telescope, req)
-    data.ClientTransactionID = parseInt(req.body.ClientTransactionID)
-    data.ServerTransactionID = parseInt(req.body.ClientTransactionID)
+    //todo: check why I should return 0 on case issues
+    if (req.body.ClientTransactionID === undefined) {
+      data.ClientTransactionID = 0
+    } else {
+			data.ClientTransactionID = parseInt(req.body.clienttransactionid)
+			if (data.ClientTransactionID === null ||
+					isNaN(data.ClientTransactionID) ||
+					data.ClientTransactionID < 0) {
+				return res.status(400).send('Invalid ClientTransactionID')
+			}
+    }
+    
+    const clientid = parseInt(req.body.clientid)
+    if (clientid === null || isNaN(clientid) || clientid < 0) {
+      return res.status(400).send('Invalid ClientID')
+    }
+
+    data.ServerTransactionID = parseInt(req.body.clienttransactionid)
+
+    try {
+      await property.set.call(telescope, req)
+    } catch (e) {
+			return res.status(400).send('Bad parameter')
+    }
   }
 
   //console.log(data)

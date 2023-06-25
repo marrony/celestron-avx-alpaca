@@ -23,8 +23,57 @@ export class AlignmentModes {
   static German = 2
 }
 
-class TelescopePort {
+class Port {
+  async send_command(cmd) {
+    throw new Error('Not implemented')
+  }
+  
+  async close() {
+    throw new Error('Not implemented')
+  }
+}
+
+class Commands {
+  static End = 0x23
+  static Ok = Buffer.from([Commands.End])
+}
+
+class SimulatorPort extends Port {
+
+  constructor() {
+    super()
+  }
+
+  async send_command(cmd) {
+    if (typeof cmd === 'string')
+      cmd = Buffer.from(cmd)
+
+    console.log(cmd)
+
+    switch (cmd[0]) {
+      case 0x45: // getRaDec
+        return Buffer.from('AAAA,AAAA#')
+
+      case 0x50: //slew
+        return Commands.Ok
+
+      case 0x54: //setTrackingMode
+        return Commands.Ok
+
+      case 0x74: //getTrackingMode
+        return Buffer.from([TrackingModes.EqNorth, Commands.End])
+    }
+
+    return Buffer.alloc(0)
+  }
+  
+  async close() {
+  }
+}
+
+class TelescopePort extends Port {
   constructor({ path, baudRate }) {
+    super()
     this.port = new SerialPort({path, baudRate});
     this.buffer = Buffer.alloc(0)
 
@@ -74,8 +123,12 @@ class TelescopePort {
 }
 
 export class CelestronAVX {
-  constructor({ path, baudRate } = { path: '/dev/ttyUSB0', baudRate: 9600 }) {
-    this.port = new TelescopePort({ path, baudRate })
+  constructor({ path, baudRate, simulator } = { path: '/dev/ttyUSB0', baudRate: 9600, simulator: false }) {
+    if (simulator) {
+      this.port = new SimulatorPort()
+    } else {
+      this.port = new TelescopePort({ path, baudRate })
+    }
   }
 
   async close() {
