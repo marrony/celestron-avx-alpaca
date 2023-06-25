@@ -1,10 +1,31 @@
 "use strict";
 
-import { SerialPort } from 'serialport';
+import { SerialPort } from 'serialport'
 
-export class Protocol {
-  constructor({ port, baudRate } = {}) {
-    this.port = new SerialPort({path: port, baudRate: baudRate});
+export class TrackingModes {
+  static Off     = 0
+  static AltAzm  = 1
+  static EqNorth = 2
+  static EqSouth = 3
+}
+
+export class EquatorialSystems {
+  static Other = 0
+  static JNow  = 1
+  static J2000 = 2
+  static J2050 = 3
+  static B1950 = 4
+}
+
+export class AlignmentModes {
+  static AltAzm = 0
+  static Polar  = 1
+  static German = 2
+}
+
+class TelescopePort {
+  constructor({ path, baudRate }) {
+    this.port = new SerialPort({path, baudRate});
     this.buffer = Buffer.alloc(0)
 
     this.port.on('data', data => {
@@ -14,8 +35,11 @@ export class Protocol {
 
       //if (length > 0 && this.buffer[length - 1] === 0x23) {
       if (length > 0 && this.buffer.indexOf(0x23) !== -1) {
+        clearTimeout(this.timeout_id)
+        this.timeout_id = undefined
+
         this.resolve_command(this.buffer)
-        console.log(this.buffer)
+        console.log('Response', this.buffer, this.buffer.toString())
 
         this.buffer = Buffer.alloc(0)
 
@@ -26,21 +50,21 @@ export class Protocol {
   }
 
   async send_command(cmd) {
-    if (this.resolve_command || this.reject_command)
+    if (this.timeout_id)
       return Promise.reject(new Error('Telescope is busy'))
 
     return new Promise((resolve, reject) => {
       this.resolve_command = resolve
       this.reject_command = reject
       this.port.write(cmd)
-      console.log(cmd)
+      console.log('Command', cmd, cmd.toString())
 
-      setTimeout(() => {
+      this.timeout_id = setTimeout(start => {
         if (this.reject_command) {
-          console.error('Command timeout: device did not respond')
-	  this.reject_command(new Error('Command timeout'))
+          this.reject_command(new Error(`Command ${cmd} timed out after ${Date.now() - start} ms`))
+          this.reject_command = undefined
         }
-      }, 3500)
+      }, 3500, Date.now())
     })
   }
 
@@ -50,16 +74,16 @@ export class Protocol {
 }
 
 export class CelestronAVX {
-  constructor({ port = '/dev/ttyUSB0', baudRate = 9600 } = {}) {
-    this.protocol = new Protocol({ port, baudRate })
+  constructor({ path, baudRate } = { path: '/dev/ttyUSB0', baudRate: 9600 }) {
+    this.port = new TelescopePort({ path, baudRate })
   }
 
   async close() {
-    await this.protocol.close()
+    await this.port.close()
   }
 
   async version() {
-    const buffer = await this.protocol.send_command('V')
+    const buffer = await this.port.send_command('V')
 
     if (buffer.length !== 3) throw new Error('Invalid size')
 
@@ -70,7 +94,7 @@ export class CelestronAVX {
   }
 
   async model() {
-    const buffer = await this.protocol.send_command('m')
+    const buffer = await this.port.send_command('m')
 
     if (buffer.length !== 2) throw new Error('Invalid size')
 
@@ -103,29 +127,29 @@ export class CelestronAVX {
   }
 
   async getRaDec() {
-    const buffer = await this.protocol.send_command('E')
+    const buffer = await this.port.send_command('E')
 
     if (buffer.length !== 10) throw new Error('Invalid size')
 
     const ra = parseInt(buffer.slice(0, 4), 16) / 0xffff
     const dec = parseInt(buffer.slice(5, 9), 16) / 0xffff
 
-    return [ ra, dec ]
+    return [ ra * 24, dec * 360 ]
   }
 
   async getPreciseRaDec() {
-    const buffer = await this.protocol.send_command('e')
+    const buffer = await this.port.send_command('e')
 
     if (buffer.length !== 18) throw new Error('Invalid size')
 
     const ra = parseInt(buffer.slice(0, 8), 16) / 0xffffffff
     const dec = parseInt(buffer.slice(9, 17), 16) / 0xffffffff
 
-    return [ ra, dec ]
+    return [ ra * 24, dec * 360 ]
   }
 
   async getAltAzm() {
-    const buffer = await this.protocol.send_command('Z')
+    const buffer = await this.port.send_command('Z')
 
     if (buffer.length !== 10) throw new Error('Invalid size')
 
@@ -136,7 +160,7 @@ export class CelestronAVX {
   }
 
   async getPreciseAltAzm() {
-    const buffer = await this.protocol.send_command('z')
+    const buffer = await this.port.send_command('z')
 
     if (buffer.length !== 18) throw new Error('Invalid size')
 
@@ -151,19 +175,19 @@ export class CelestronAVX {
   }
 
   async gotoRaDec(ra, dec) {
-    const raStr = this.numberToHex(ra * 0xffff, 4)
-    const decStr = this.numberToHex(dec * 0xffff, 4)
+    const raStr = this.numberToHex(ra / 24 * 0xffff, 4)
+    const decStr = this.numberToHex(dec / 360 * 0xffff, 4)
 
-    const buffer = await this.protocol.send_command(`R${raStr},${decStr}`)
+    const buffer = await this.port.send_command(`R${raStr},${decStr}`)
 
     if (buffer.length !== 1) throw new Error('Invalid size')
   }
 
   async gotoPreciseRaDec(ra, dec) {
-    const raStr = this.numberToHex(ra * 0xffffffff, 8)
-    const decStr = this.numberToHex(dec * 0xffffffff, 8)
+    const raStr = this.numberToHex(ra / 24 * 0xffffffff, 8)
+    const decStr = this.numberToHex(dec / 360 * 0xffffffff, 8)
 
-    const buffer = await this.protocol.send_command(`r${raStr},${decStr}`)
+    const buffer = await this.port.send_command(`r${raStr},${decStr}`)
 
     if (buffer.length !== 1) throw new Error('Invalid size')
   }
@@ -172,7 +196,7 @@ export class CelestronAVX {
     const altStr = this.numberToHex(alt * 0xffff, 4)
     const azmStr = this.numberToHex(azm * 0xffff, 4)
 
-    const buffer = await this.protocol.send_command(`B${azmStr},${altStr}`)
+    const buffer = await this.port.send_command(`B${azmStr},${altStr}`)
 
     if (buffer.length !== 1) throw new Error('Invalid size')
   }
@@ -181,7 +205,7 @@ export class CelestronAVX {
     const altStr = this.numberToHex(alt * 0xffffffff, 8)
     const azmStr = this.numberToHex(azm * 0xffffffff, 8)
 
-    const buffer = await this.protocol.send_command(`b${azmStr},${altStr}`)
+    const buffer = await this.port.send_command(`b${azmStr},${altStr}`)
 
     if (buffer.length !== 1) throw new Error('Invalid size')
   }
@@ -190,7 +214,7 @@ export class CelestronAVX {
     const raStr = this.numberToHex(ra * 0xffff, 4)
     const decStr = this.numberToHex(dec * 0xffff, 4)
 
-    const buffer = await this.protocol.send_command(`S${raStr},${decStr}`)
+    const buffer = await this.port.send_command(`S${raStr},${decStr}`)
 
     if (buffer.length !== 1) throw new Error('Invalid size')
   }
@@ -199,13 +223,26 @@ export class CelestronAVX {
     const raStr = this.numberToHex(ra * 0xffffffff, 8)
     const decStr = this.numberToHex(dec * 0xffffffff, 8)
 
-    const buffer = await this.protocol.send_command(`s${raStr},${decStr}`)
+    const buffer = await this.port.send_command(`s${raStr},${decStr}`)
+
+    if (buffer.length !== 1) throw new Error('Invalid size')
+  }
+
+  async slewAzmVariable(rate) {
+    const rateHigh = Math.trunc((rate * 4) / 256)
+    const rateLow = Math.trunc((rate * 4) % 256)
+
+    console.log('MoveAzm', rate, rateHigh, rateLow)
+
+    const buffer = await this.port.send_command(Buffer.from([
+      80, 3, 16, 6, rateHigh, rateLow, 0, 0
+    ]))
 
     if (buffer.length !== 1) throw new Error('Invalid size')
   }
 
   async getTrackingMode() {
-    const buffer = await this.protocol.send_command('t')
+    const buffer = await this.port.send_command('t')
 
     if (buffer.length !== 2) throw new Error('Invalid size')
 
@@ -213,13 +250,13 @@ export class CelestronAVX {
   }
 
   async setTrackingMode(mode) {
-    const buffer = await this.protocol.send_command(Buffer.from([0x54, mode]))
+    const buffer = await this.port.send_command(Buffer.from([0x54, mode]))
 
     if (buffer.length !== 1) throw new Error('Invalid size')
   }
 
   async isAlignComplete() {
-    const buffer = await this.protocol.send_command('J')
+    const buffer = await this.port.send_command('J')
 
     if (buffer.length !== 2) throw new Error('Invalid size')
 
@@ -227,7 +264,7 @@ export class CelestronAVX {
   }
 
   async isGotoInProgress() {
-    const buffer = await this.protocol.send_command('L')
+    const buffer = await this.port.send_command('L')
 
     if (buffer.length !== 2) throw new Error('Invalid size')
 
@@ -237,13 +274,13 @@ export class CelestronAVX {
   }
 
   async cancelGoto() {
-    const buffer = await this.protocol.send_command('M')
+    const buffer = await this.port.send_command('M')
 
     if (buffer.length !== 1) throw new Error('Invalid size')
   }
 
   async echo(ch) {
-    const buffer = await this.protocol.send_command(`K${ch}`)
+    const buffer = await this.port.send_command(`K${ch}`)
 
     if (buffer.length !== 2) throw new Error('Invalid size')
 

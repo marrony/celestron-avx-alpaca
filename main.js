@@ -1,20 +1,23 @@
 "use strict";
 
 import express from 'express'
-import { CelestronAVX } from './serial.js'
-
-console.log(CelestronAVX)
+import {
+  CelestronAVX,
+  TrackingModes,
+  EquatorialSystems,
+  AlignmentModes
+} from './serial.js'
 
 const app = express()
 const port = 3000
+
+const celestron = new CelestronAVX()
 
 app.use(express.json())
 app.use(express.urlencoded({ extended: true }))
 
 //GET /management/apiversions?ClientID=4030&ClientTransactionID=3
 app.get('/management/apiversions', (req, res) => {
-  console.log('GET', req.url)
-  console.log(req.query)
   res.status(200).json({
     Value: [
       1, 2, 3, 4
@@ -26,8 +29,6 @@ app.get('/management/apiversions', (req, res) => {
 
 //GET /management/v1/description?ClientID=4030&ClientTransactionID=3
 app.get('/management/v1/description', (req, res) => {
-  console.log('GET', req.url)
-  console.log(req.query)
   res.status(200).json({
     Value: {
       ServerName: 'my server',
@@ -41,13 +42,13 @@ app.get('/management/v1/description', (req, res) => {
 })
 
 //GET /management/v1/configureddevices?ClientID=4030&ClientTransactionID=28
-app.get('/management/v1/configureddevices', (req, res) => {
-  console.log('GET', req.url)
-  console.log(req.query)
+app.get('/management/v1/configureddevices', async (req, res) => {
+  const model = await celestron.model()
+
   res.status(200).json({
     Value: [
       {
-        DeviceName: 'Celestron AVX',
+        DeviceName: model,
         DeviceType: 'telescope',
         DeviceNumber: 0,
         UniqueID: 'fb9472c8-6217-4140-9ebe-67d9ca0754c1' //crypto.randomUUID()
@@ -61,173 +62,222 @@ app.get('/management/v1/configureddevices', (req, res) => {
 const telescope = {
   connected: {
     value: false,
-    get: function(req) {
+    get: function (req) {
       return this.connected.value
     },
-    set: function(req) {
+    set: function (req) {
       this.connected.value = req.body.Connected === 'true'
     }
   },
 
   slewing: {
-    value: false,
-    get: function(req) {
-      return this.slewing.value
+    get: async function (req) {
+      return await celestron.isGotoInProgress()
     },
-    set: function(req) {}
+    set: async function (req) {}
   },
 
   tracking: {
-    value: false,
-    get: function(req) {
+    value: undefined,
+    get: async function (req) {
+      if (this.tracking.value === undefined) {
+        const trackingMode = await celestron.getTrackingMode()
+        this.tracking.value = trackingMode !== TrackingModes.Off
+      }
+
       return this.tracking.value
     },
-    set: function(req) {
-      this.tracking.value = req.body.Tracking === 'true'
+    set: async function (req) {
+      if (req.body.Tracking === 'true') {
+        await celestron.setTrackingMode(TrackingModes.EqNorth)
+        this.tracking.value = true
+      } else {
+        await celestron.setTrackingMode(TrackingModes.Off)
+        this.tracking.value = false
+      }
     }
   },
 
   rightascension: {
     value: 0,
-    get: function(req) {
-      return this.rightascension.value
+    get: async function (req) {
+      const [ra, dec] = await celestron.getRaDec()
+      this.rightascension.value = ra
+      this.declination.value = dec
+
+      const raH = Math.trunc(ra)
+      const raM = Math.trunc((ra - raH) * 60)
+      const raS = Math.trunc(((ra - raH) * 60 - raM) * 60 * 100) / 100
+
+      const decG = Math.trunc(dec)
+      const decM = Math.trunc((dec - decG) * 60)
+      const decS = Math.trunc(((dec - decG) * 60 - decM) * 60 * 100) / 100
+
+      console.log(`RA: ${raH}h ${raM}m ${raS}s`)
+      console.log(`Dec: ${decG} ${decM}' ${decS}"`)
+
+      return ra
     },
-    set: function(req) {}
+    set: async function (req) {}
   },
 
   declination: {
     value: 0,
-    get: function(req) {
+    get: async function (req) {
+      //const [_, dec] = await celestron.getRaDec()
+      //return dec
       return this.declination.value
     },
-    set: function (req) {}
+    set: async function (req) {}
   },
 
   // methods
   slewtocoordinatesasync: {
-    get: function(req) {},
-    set: function(req) {
-      this.rightascension.value = parseFloat(req.body.RightAscension)
-      this.declination.value = parseFloat(req.body.Declination)
+    get: async function (req) { },
+    set: async function (req) {
+      const ra = parseFloat(req.body.RightAscension)
+      const dec = parseFloat(req.body.Declination)
+      await celestron.gotoRaDec(ra, dec)
     }
   },
 
   synctocoordinates: {
-    get: function(req) {},
-    set: function(req) {
-      this.rightascension.value = parseFloat(req.body.RightAscension)
-      this.declination.value = parseFloat(req.body.Declination)
+    get: async function (req) {},
+    set: async function (req) {
+      const ra = parseFloat(req.body.RightAscension)
+      const dec = parseFloat(req.body.Declination)
+      await celestron.gotoRaDec(ra, dec)
+    }
+  },
+
+  moveaxis: {
+    get: async function (req) {},
+    set: async function (req) {
+      const axis = parseInt(req.body.Axis)
+      const rate = parseFloat(req.body.Rate)
+
+      if (axis === 0) {
+        await celestron.slewAzmVariable(rate)
+      }
+
+      //if (this.tracking.value) {
+      //  await celestron.setTrackingMode(TrackingModes.Off)
+      //  this.tracking.value = false
+      //}
     }
   },
 
   // features
   canslew: {
-    get: function(req) {
+    get: function (req) {
       return true
     },
     set: function (req) {}
   },
 
   canslewasync: {
-    get: function(req) {
+    get: function (req) {
       return true
     },
     set: function (req) {}
   },
 
   canslewaltaz: {
-    get: function(req) {
+    get: function (req) {
       return true
     },
     set: function (req) {}
   },
 
   canslewaltazasync: {
-    get: function(req) {
+    get: function (req) {
       return true
     },
     set: function (req) {}
   },
 
   cansync: {
-    get: function(req) {
+    get: function (req) {
       return true
     },
     set: function (req) {}
   },
 
   cansyncaltaz: {
-    get: function(req) {
+    get: function (req) {
       return true
     },
     set: function (req) {}
   },
 
   canpark: {
-    get: function(req) {
+    get: function (req) {
       return false
     },
     set: function (req) {}
   },
 
   cansettracking: {
-    get: function(req) {
+    get: function (req) {
       return true
     },
     set: function (req) {}
   },
 
   canmoveaxis: {
-    get: function(req) {
-      return false
+    get: function (req) {
+      return true
     },
     set: function (req) {}
   },
 
   cansetrightascensionrate: {
-    get: function(req) {
+    get: function (req) {
       return true
     },
     set: function (req) {}
   },
 
   cansetdeclinationrate: {
-    get: function(req) {
+    get: function (req) {
       return true
     },
     set: function (req) {}
   },
 
-//Other	0	Custom or unknown equinox and/or reference frame.
-//Topocentric	1	Topocentric coordinates.Coordinates of the object at the current date having allowed for annual aberration, precession and nutation.This is the most common coordinate type for amateur telescopes.
-//J2000	2	J2000 equator/equinox.Coordinates of the object at mid-day on 1st January 2000, ICRS reference frame.
-//J2050	3	J2050 equator/equinox, ICRS reference frame.
-//B1950	4	B1950 equinox, FK4 reference frame.
-  equatorialsystem: {
-    get: function(req) {
-      return 1
+  axisrates: {
+    get: function (req) {
+      const axis = parseInt(req.query.Axis)
+      return [
+        {
+          Minimum: 1,
+          Maxinum: 1
+        }
+      ]
     },
     set: function (req) {}
   },
 
-//AltAz	0	Altitude-Azimuth alignment.
-//Polar	1	Polar(equatorial) mount other than German equatorial.
-//GermanPolar	2	German equatorial mount.
+  equatorialsystem: {
+    get: function (req) {
+      return EquatorialSystems.JNow
+    },
+    set: function (req) {}
+  },
+
   alignmentmode: {
     get: function(req) {
-      return 1
+      return AlignmentModes.German
     },
     set: function (req) {}
   },
 }
 
-app.all('/api/v1/telescope/0/:property', (req, res) => {
+app.all('/api/v1/telescope/0/:property', async (req, res) => {
   console.log(req.method, req.url)
-  console.log(req.query)
-  console.log(req.params)
+  //console.log(req.query)
 
   const property = telescope[req.params.property]
-  console.log('property', property)
 
   if (!property || !(req.method === 'GET' || req.method === 'PUT')) {
     console.log('Not implemented')
@@ -241,18 +291,17 @@ app.all('/api/v1/telescope/0/:property', (req, res) => {
   }
 
   if (req.method === 'GET') {
-    data.Value = property.get.call(telescope, req)
+    data.Value = await property.get.call(telescope, req)
     data.ClientTransactionID = parseInt(req.query.ClientTransactionID)
     data.ServerTransactionID = parseInt(req.query.ClientTransactionID)
   } else if (req.method === 'PUT') {
     console.log(req.body)
-
-    property.set.call(telescope, req)
+    await property.set.call(telescope, req)
     data.ClientTransactionID = parseInt(req.body.ClientTransactionID)
     data.ServerTransactionID = parseInt(req.body.ClientTransactionID)
   }
 
-  console.log(data)
+  //console.log(data)
   res.status(200).json(data)
 })
 
