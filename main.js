@@ -125,6 +125,126 @@ const telescope = {
     }
   },
 
+  rightascensionrate: {
+    value: 0,
+    get: async function (req) {
+      return this.rightascensionrate.value
+    },
+    set: async function (req) {}
+  },
+
+  declinationrate: {
+    value: 0,
+    get: async function (req) {
+      return this.declinationrate.value
+    },
+    set: async function (req) {}
+  },
+
+  doesrefraction: {
+    value: 0,
+    get: async function (req) {
+      return this.doesrefraction.value
+    },
+    set: async function (req) {}
+  },
+
+  guideratedeclination: {
+    value: 0,
+    get: async function (req) {
+      return this.guideratedeclination.value
+    },
+    set: async function (req) {}
+  },
+
+  guideraterightascension: {
+    value: 0,
+    get: async function (req) {
+      return this.guideratedeclination.value
+    },
+    set: async function (req) {}
+  },
+
+  sideofpier: {
+    value: 0,
+    get: async function (req) {
+      return this.sideofpier.value
+    },
+    set: async function (req) {}
+  },
+
+  siteelevation: {
+    value: 0,
+    get: async function (req) {
+      return this.siteelevation.value
+    },
+    set: async function (req) {}
+  },
+
+  sitelatitude: {
+    value: 0,
+    get: async function (req) {
+      return this.sitelatitude.value
+    },
+    set: async function (req) {}
+  },
+
+  sitelongitude: {
+    value: 0,
+    get: async function (req) {
+      return this.sitelongitude.value
+    },
+    set: async function (req) {}
+  },
+
+  slewsettletime: {
+    value: 0,
+    get: async function (req) {
+      return this.slewsettletime.value
+    },
+    set: async function (req) {}
+  },
+
+  targetdeclination: {
+    value: 0,
+    get: async function (req) {
+      return this.targetdeclination.value
+    },
+    set: async function (req) {}
+  },
+
+  targetrightascension: {
+    value: 0,
+    get: async function (req) {
+      return this.targetrightascension.value
+    },
+    set: async function (req) {}
+  },
+
+  trackingrate: {
+    value: 0,
+    get: async function (req) {
+      return this.trackingrate.value
+    },
+    set: async function (req) {}
+  },
+
+  utcdate: {
+    value: 0,
+    get: async function (req) {
+      return this.utcdate.value
+    },
+    set: async function (req) {}
+  },
+
+  siderealtime: {
+    value: 0,
+    get: async function (req) {
+      return this.sideofpier.value
+    },
+    //set: async function (req) {}
+  },
+
   rightascension: {
     value: 0,
     get: async function (req) {
@@ -181,6 +301,15 @@ const telescope = {
       return this.destinationsideofpier.value
     }
   },
+
+  destinationsideofpier: {
+    value: 0,
+    get: async function (req) {
+      return this.destinationsideofpier.value
+    },
+  },
+
+  ////////////////////////////////////////////////////////////////////
 
   // methods
   slewtocoordinatesasync: {
@@ -287,6 +416,28 @@ const telescope = {
       this.ispulseguiding.value = false
     }
   },
+
+  park: {
+    set: function (req) {
+    }
+  },
+
+  unpark: {
+    set: function (req) {
+    }
+  },
+
+  setpark: {
+    set: function (req) {
+    }
+  },
+
+  findhome: {
+    set: function (req) {
+    }
+  },
+
+  ////////////////////////////////////////////////////////////////////
 
   // features
   canslew: {
@@ -488,6 +639,36 @@ const telescope = {
   alignmentmode: {
     get: function(req) {
       return AlignmentModes.German
+    }
+  },
+
+  aperturearea: {
+    get: function(req) {
+      return 0
+    }
+  },
+
+  aperturediameter: {
+    get: function(req) {
+      return 0
+    }
+  },
+
+  focallength: {
+    get: function(req) {
+      return 0
+    }
+  },
+
+  athome: {
+    get: function(req) {
+      return false
+    }
+  },
+
+  atpark: {
+    get: function(req) {
+      return false
     }
   },
 }

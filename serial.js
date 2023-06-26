@@ -60,8 +60,14 @@ class SimulatorPort extends Port {
       case 0x50: //slew
         return Commands.Ok
 
+      case 0x52: //goto
+        return Commands.Ok
+
       case 0x54: //setTrackingMode
         return Commands.Ok
+
+      case 0x6D: //model
+        return Buffer.from([20, Commands.End])
 
       case 0x74: //getTrackingMode
         return Buffer.from([TrackingModes.EqNorth, Commands.End])
