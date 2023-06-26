@@ -66,7 +66,17 @@ const telescope = {
       return this.connected.value
     },
     set: function (req) {
-      this.connected.value = req.body.Connected === 'true'
+      if (req.body.Connected === undefined) {
+        throw new Error('Connected is required')
+      }
+
+      const connected = req.body.Connected.toLowerCase()
+
+      if (connected === 'true' || connected === 'false') {
+        this.connected.value = connected === 'true'
+      } else {
+        throw new Error('Invalid connected value')
+      }
     }
   },
 
@@ -74,9 +84,13 @@ const telescope = {
     value: false,
     get: async function (req) {
       return this.slewing.value
-    },
-    set: async function (req) {
-      throw new Error("slewing property is read-only")
+    }
+  },
+
+  ispulseguiding: {
+    value: false,
+    get: async function (req) {
+      return this.ispulseguiding.value
     }
   },
 
@@ -91,12 +105,22 @@ const telescope = {
       return this.tracking.value
     },
     set: async function (req) {
-      if (req.body.Tracking === 'true') {
-        await celestron.setTrackingMode(TrackingModes.EqNorth)
-        this.tracking.value = true
+      if (req.body.Tracking === undefined) {
+        throw new Error('Tracking is required')
+      }
+
+      const tracking = req.body.Tracking.toLowerCase()
+
+      if (tracking === 'true' || tracking === 'false') {
+        if (tracking === 'true') {
+          await celestron.setTrackingMode(TrackingModes.EqNorth)
+          this.tracking.value = true
+        } else {
+          await celestron.setTrackingMode(TrackingModes.Off)
+          this.tracking.value = false
+        }
       } else {
-        await celestron.setTrackingMode(TrackingModes.Off)
-        this.tracking.value = false
+        throw new Error('Invalid tracking value')
       }
     }
   },
@@ -120,8 +144,7 @@ const telescope = {
       console.log(`Dec: ${decG} ${decM}' ${decS}"`)
 
       return ra
-    },
-    set: async function (req) {}
+    }
   },
 
   declination: {
@@ -130,13 +153,45 @@ const telescope = {
       //const [_, dec] = await celestron.getRaDec()
       //return dec
       return this.declination.value
-    },
-    set: async function (req) {}
+    }
+  },
+
+  altitude: {
+    value: 0,
+    get: async function (req) {
+      const [alt, azm] = await celestron.getAltAzm()
+
+      this.altitude.value = alt
+      this.azimuth.value = azm
+
+      return alt
+    }
+  },
+
+  azimuth: {
+    value: 0,
+    get: async function (req) {
+      return this.azimuth.value
+    }
+  },
+
+  destinationsideofpier: {
+    value: 0,
+    get: async function (req) {
+      return this.destinationsideofpier.value
+    }
   },
 
   // methods
   slewtocoordinatesasync: {
-    get: async function (req) { },
+    set: async function (req) {
+      const ra = parseFloat(req.body.RightAscension)
+      const dec = parseFloat(req.body.Declination)
+      await celestron.gotoRaDec(ra, dec)
+    }
+  },
+
+  slewtocoordinates: {
     set: async function (req) {
       const ra = parseFloat(req.body.RightAscension)
       const dec = parseFloat(req.body.Declination)
@@ -145,7 +200,6 @@ const telescope = {
   },
 
   synctocoordinates: {
-    get: async function (req) {},
     set: async function (req) {
       const ra = parseFloat(req.body.RightAscension)
       const dec = parseFloat(req.body.Declination)
@@ -153,8 +207,37 @@ const telescope = {
     }
   },
 
+  synctoaltaz: {
+    set: async function (req) {
+    }
+  },
+
+  synctotarget: {
+    set: async function (req) {
+    }
+  },
+
+  slewtoaltazasync: {
+    set: async function (req) {
+    }
+  },
+
+  slewtoaltaz: {
+    set: async function (req) {
+    }
+  },
+
+  slewtotarget: {
+    set: async function (req) {
+    }
+  },
+
+  slewtotargetasync: {
+    set: async function (req) {
+    }
+  },
+
   abortslew: {
-    get: async function (req) {},
     set: async function (req) {
       this.slewing.value = false
       this.tracking.value = true
@@ -162,7 +245,6 @@ const telescope = {
   },
 
   moveaxis: {
-    get: async function (req) {},
     set: async function (req) {
       if (req.body.Axis === undefined) {
         throw new Error("Axis is required")
@@ -200,156 +282,157 @@ const telescope = {
     }
   },
 
+  pulseguide: {
+    set: function (req) {
+      this.ispulseguiding.value = false
+    }
+  },
+
   // features
   canslew: {
     get: function (req) {
       return false
-    },
-    set: function (req) {}
+    }
   },
 
   canslewasync: {
     get: function (req) {
       return true
-    },
-    set: function (req) {}
+    }
   },
 
   canslewaltaz: {
     get: function (req) {
       return false
-    },
-    set: function (req) {}
+    }
   },
 
   canslewaltazasync: {
     get: function (req) {
       return true
-    },
-    set: function (req) {}
+    }
   },
 
   cansync: {
     get: function (req) {
       return true
-    },
-    set: function (req) {}
+    }
   },
 
   cansyncaltaz: {
     get: function (req) {
       return true
-    },
-    set: function (req) {}
+    }
   },
 
   canpark: {
     get: function (req) {
       return false
-    },
-    set: function (req) {}
+    }
+  },
+
+  canunpark: {
+    get: function (req) {
+      return false
+    }
   },
 
   cansettracking: {
     get: function (req) {
       return true
-    },
-    set: function (req) {}
+    }
   },
 
   cansetrightascensionrate: {
     get: function (req) {
       return true
-    },
-    set: function (req) {}
+    }
   },
 
   cansetdeclinationrate: {
     get: function (req) {
       return true
-    },
-    set: function (req) {}
+    }
   },
 
   cansetguiderates: {
     get: function (req) {
       return false
-    },
-    set: function (req) {}
+    }
   },
 
   cansetpark: {
     get: function (req) {
       return true
-    },
-    set: function (req) {}
+    }
   },
 
   cansetpierside: {
     get: function (req) {
       return false
-    },
-    set: function (req) {}
+    }
   },
 
   canmoveaxis: {
     get: function (req) {
       return true
-    },
-    set: function (req) {}
+    }
+  },
+
+  canpulseguide: {
+    get: function (req) {
+      return false
+    }
   },
 
   name: {
     get: function (req) {
       return 'Telescope'
-    },
-    set: function (req) {
     }
   },
 
   interfaceversion: {
     get: function (req) {
       return 0
-    },
-    set: function (req) {
     }
   },
 
   driverinfo: {
     get: function (req) {
       return 'Telescope'
-    },
-    set: function (req) {
     }
   },
 
   driverversion: {
     get: function (req) {
       return '0.0.1'
-    },
-    set: function (req) {
     }
   },
 
   description: {
     get: function (req) {
       return 'Telescope'
-    },
-    set: function (req) {
     }
   },
 
   supportedactions: {
     get: function (req) {
       return []
-    },
-    set: function (req) {
     }
   },
 
   axisrates: {
-    get: function (req) {
+    get: async function (req) {
+      if (req.query.Axis === undefined) {
+        throw new Error("Axis is required")
+      }
+
       const axis = parseInt(req.query.Axis)
+
+      if (axis === null || isNaN(axis)) {
+        throw new Error("Invalid axis")
+      }
+
       //360/(23*60*60 + 56*60) = 0.004178272981
       //361/(24*60*60)         = 0.004178240741
 
@@ -393,26 +476,23 @@ const telescope = {
           Maximum: 4
         },
       ]
-    },
-    set: function (req) {}
+    }
   },
 
   equatorialsystem: {
     get: function (req) {
       return EquatorialSystems.JNow
-    },
-    set: function (req) {}
+    }
   },
 
   alignmentmode: {
     get: function(req) {
       return AlignmentModes.German
-    },
-    set: function (req) {}
+    }
   },
 }
 
-app.all('/api/v1/:device_type/:device_number/:property', async (req, res) => {
+app.all('/api/v1/:device_type/:device_number/:operation', async (req, res) => {
   //console.log(req.method, req.url)
   //console.log(req.query)
 
@@ -428,9 +508,9 @@ app.all('/api/v1/:device_type/:device_number/:property', async (req, res) => {
     return res.status(405).send('Method not allowed')
   }
 
-  const property = telescope[req.params.property]
+  const operation = telescope[req.params.operation]
 
-  if (!property) {
+  if (!operation) {
     console.log(req.method, req.url)
     console.log('Not implemented')
     return res.status(405).send('Not implemented')
@@ -471,8 +551,12 @@ app.all('/api/v1/:device_type/:device_number/:property', async (req, res) => {
 
     data.ServerTransactionID = parseInt(req.query.clienttransactionid)
 
-    data.Value = await property.get.call(telescope, req)
-    console.log(req.method, req.url, data.Value)
+    try {
+      data.Value = await operation.get.call(telescope, req)
+      console.log(req.method, req.url, data.Value)
+    } catch (e) {
+			return res.status(400).send('Bad parameter')
+    }
   } else if (req.method === 'PUT') {
     console.log(req.method, req.url, req.body)
 
@@ -496,9 +580,9 @@ app.all('/api/v1/:device_type/:device_number/:property', async (req, res) => {
     data.ServerTransactionID = parseInt(req.body.clienttransactionid)
 
     try {
-      await property.set.call(telescope, req)
+      await operation.set.call(telescope, req)
     } catch (e) {
-			return res.status(400).send('Bad parameter')
+      return res.status(400).send('Bad parameter')
     }
   }
 

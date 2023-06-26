@@ -54,6 +54,9 @@ class SimulatorPort extends Port {
       case 0x45: // getRaDec
         return Buffer.from('AAAA,AAAA#')
 
+      case 0x5A: // getAltAzm
+        return Buffer.from('AAAA,AAAA#')
+
       case 0x50: //slew
         return Commands.Ok
 
