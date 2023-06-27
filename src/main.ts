@@ -878,33 +878,32 @@ app.all(
         return res.status(400).send("Bad parameter");
       }
     } else if (req.method === "PUT") {
-      if (req.body.ClientTransactionID === undefined) {
-        data.ClientTransactionID = 0;
-        data.ServerTransactionID = 1;
-      } else {
-        data.ClientTransactionID = parseInt(req.body.ClientTransactionID);
-      }
-
       console.log(req.method, req.url, req.body);
 
-      const clientIDKey = Object.keys(req.body).find(k => k.toLowerCase() === 'clientid')
-      if (clientIDKey) {
-        req.body.ClientID = req.body[clientIDKey]
+      // according to conform tool if ClientID and ClientTransactionID
+      // are incorrectly cased the device must ignore it
+      if (req.body.ClientID !== undefined) {
+        const clientID = parseInt(req.body.ClientID);
+        if (clientID === null || isNaN(clientID) || clientID < 0) {
+          return res.status(400).send("Invalid ClientID");
+        }
       }
 
-      if (
-        data.ClientTransactionID === null ||
-        isNaN(data.ClientTransactionID) ||
-        data.ClientTransactionID < 0
-      ) {
-        return res.status(400).send("Invalid ClientTransactionID");
+      if (req.body.ClientTransactionID !== undefined) {
+        data.ClientTransactionID = parseInt(req.body.ClientTransactionID);
+
+        if (
+          data.ClientTransactionID === null ||
+          isNaN(data.ClientTransactionID) ||
+          data.ClientTransactionID < 0
+        ) {
+          return res.status(400).send("Invalid ClientTransactionID");
+        }
+      } else {
+        data.ClientTransactionID = 0;
       }
 
-      const clientID = parseInt(req.body.ClientID);
-      if (clientID === null || isNaN(clientID) || clientID < 0) {
-        return res.status(400).send("Invalid ClientID");
-      }
-
+      // todo: increment
       data.ServerTransactionID = 1;
 
       try {

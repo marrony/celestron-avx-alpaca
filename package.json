@@ -1,4 +1,7 @@
 {
+  "name": "alpaca-celestron-avx-driver",
+  "version": "0.0.1",
+  "author": "Marrony Neris",
   "type": "commonjs",
   "dependencies": {
     "commander": "^11.0.0",
