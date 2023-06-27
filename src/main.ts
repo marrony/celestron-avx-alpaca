@@ -15,6 +15,22 @@ const celestron = new CelestronAVX({ simulator: true });
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
+const caseInsensitive = (obj: Record<string, any>) => {
+  return new Proxy(obj, {
+    get: (target, name) => {
+      const prop = Object.keys(target).find(key => key.toLowerCase() === name.toString().toLowerCase())
+      return prop ? target[prop] : undefined
+    }
+  })
+}
+
+app.use((req, res, next) => {
+  req.query = caseInsensitive(req.query)
+  //req.body = caseInsensitive(req.body)
+
+  next();
+});
+
 type Transaction = {
   ClientID: string;
   ClientTransactionID: string;
@@ -160,7 +176,11 @@ const telescope: Record<string, any> = {
     get: async function (req: TypedRequest) {
       return this.rightascensionrate.value;
     },
-    set: async function (req: TypedRequest) {},
+    set: async function (req: TypedRequest<{ RightAscensionRate?: string }>) {
+      if (req.body.RightAscensionRate === undefined) {
+        throw new Error("RightAscensionRate is required");
+      }
+    },
   },
 
   declinationrate: {
@@ -168,7 +188,11 @@ const telescope: Record<string, any> = {
     get: async function (req: TypedRequest) {
       return this.declinationrate.value;
     },
-    set: async function (req: TypedRequest) {},
+    set: async function (req: TypedRequest<{ DeclinationRate?: string }>) {
+      if (req.body.DeclinationRate === undefined) {
+        throw new Error("DeclinationRate is required");
+      }
+    },
   },
 
   doesrefraction: {
@@ -176,7 +200,11 @@ const telescope: Record<string, any> = {
     get: async function (req: TypedRequest) {
       return this.doesrefraction.value;
     },
-    set: async function (req: TypedRequest) {},
+    set: async function (req: TypedRequest<{ DoesRefraction?: string }>) {
+      if (req.body.DoesRefraction === undefined) {
+        throw new Error("DoesRefraction is required");
+      }
+    },
   },
 
   guideratedeclination: {
@@ -184,7 +212,11 @@ const telescope: Record<string, any> = {
     get: async function (req: TypedRequest) {
       return this.guideratedeclination.value;
     },
-    set: async function (req: TypedRequest) {},
+    set: async function (req: TypedRequest<{ GuideRateDeclination?: string }>) {
+      if (req.body.GuideRateDeclination === undefined) {
+        throw new Error("GuideRateDeclination is required");
+      }
+    },
   },
 
   guideraterightascension: {
@@ -192,7 +224,11 @@ const telescope: Record<string, any> = {
     get: async function (req: TypedRequest) {
       return this.guideratedeclination.value;
     },
-    set: async function (req: TypedRequest) {},
+    set: async function (req: TypedRequest<{ GuideRateRightAscension?: string }>) {
+      if (req.body.GuideRateRightAscension === undefined) {
+        throw new Error("GuideRateRightAscension is required");
+      }
+    },
   },
 
   sideofpier: {
@@ -200,7 +236,11 @@ const telescope: Record<string, any> = {
     get: async function (req: TypedRequest) {
       return this.sideofpier.value;
     },
-    set: async function (req: TypedRequest) {},
+    set: async function (req: TypedRequest<{ SideOfPier?: string }>) {
+      if (req.body.SideOfPier === undefined) {
+        throw new Error("SideOfPier is required");
+      }
+    },
   },
 
   siteelevation: {
@@ -208,7 +248,11 @@ const telescope: Record<string, any> = {
     get: async function (req: TypedRequest) {
       return this.siteelevation.value;
     },
-    set: async function (req: TypedRequest) {},
+    set: async function (req: TypedRequest<{ SiteElevation?: string }>) {
+      if (req.body.SiteElevation === undefined) {
+        throw new Error("SiteElevation is required");
+      }
+    },
   },
 
   sitelatitude: {
@@ -216,7 +260,11 @@ const telescope: Record<string, any> = {
     get: async function (req: TypedRequest) {
       return this.sitelatitude.value;
     },
-    set: async function (req: TypedRequest) {},
+    set: async function (req: TypedRequest<{ SiteLatitude?: string }>) {
+      if (req.body.SiteLatitude === undefined) {
+        throw new Error("SiteLatitude is required");
+      }
+    },
   },
 
   sitelongitude: {
@@ -224,7 +272,11 @@ const telescope: Record<string, any> = {
     get: async function (req: TypedRequest) {
       return this.sitelongitude.value;
     },
-    set: async function (req: TypedRequest) {},
+    set: async function (req: TypedRequest<{ SiteLongitude?: string }>) {
+      if (req.body.SiteLongitude === undefined) {
+        throw new Error("SiteLongitude is required");
+      }
+    },
   },
 
   slewsettletime: {
@@ -232,7 +284,11 @@ const telescope: Record<string, any> = {
     get: async function (req: TypedRequest) {
       return this.slewsettletime.value;
     },
-    set: async function (req: TypedRequest) {},
+    set: async function (req: TypedRequest<{ SlewSettleTime?: string }>) {
+      if (req.body.SlewSettleTime === undefined) {
+        throw new Error("SlewSettleTime is required");
+      }
+    },
   },
 
   targetdeclination: {
@@ -240,7 +296,11 @@ const telescope: Record<string, any> = {
     get: async function (req: TypedRequest) {
       return this.targetdeclination.value;
     },
-    set: async function (req: TypedRequest) {},
+    set: async function (req: TypedRequest<{ TargetDeclination?: string }>) {
+      if (req.body.TargetDeclination === undefined) {
+        throw new Error("TargetDeclination is required");
+      }
+    },
   },
 
   targetrightascension: {
@@ -248,7 +308,11 @@ const telescope: Record<string, any> = {
     get: async function (req: TypedRequest) {
       return this.targetrightascension.value;
     },
-    set: async function (req: TypedRequest) {},
+    set: async function (req: TypedRequest<{ TargetRightAscension?: string }>) {
+      if (req.body.TargetRightAscension === undefined) {
+        throw new Error("TargetRightAscension is required");
+      }
+    },
   },
 
   trackingrate: {
@@ -256,7 +320,11 @@ const telescope: Record<string, any> = {
     get: async function (req: TypedRequest) {
       return this.trackingrate.value;
     },
-    set: async function (req: TypedRequest) {},
+    set: async function (req: TypedRequest<{ TrackingRate?: string }>) {
+      if (req.body.TrackingRate === undefined) {
+        throw new Error("TrackingRate is required");
+      }
+    },
   },
 
   utcdate: {
@@ -264,7 +332,11 @@ const telescope: Record<string, any> = {
     get: async function (req: TypedRequest) {
       return this.utcdate.value;
     },
-    set: async function (req: TypedRequest) {},
+    set: async function (req: TypedRequest<{ UTCDate?: string }>) {
+      if (req.body.UTCDate === undefined) {
+        throw new Error("UTCDate is required");
+      }
+    },
   },
 
   siderealtime: {
@@ -339,8 +411,16 @@ const telescope: Record<string, any> = {
     set: async function (
       req: TypedRequest<{ RightAscension?: string; Declination?: string }>
     ) {
-      const ra = parseFloat(req.body.RightAscension ?? "0");
-      const dec = parseFloat(req.body.Declination ?? "0");
+      if (req.body.RightAscension === undefined) {
+        throw new Error("RightAscension is required");
+      }
+
+      if (req.body.Declination === undefined) {
+        throw new Error("Declination is required");
+      }
+
+      const ra = parseFloat(req.body.RightAscension);
+      const dec = parseFloat(req.body.Declination);
       await celestron.gotoRaDec(ra, dec);
     },
   },
@@ -349,8 +429,16 @@ const telescope: Record<string, any> = {
     set: async function (
       req: TypedRequest<{ RightAscension?: string; Declination?: string }>
     ) {
-      const ra = parseFloat(req.body.RightAscension ?? "0");
-      const dec = parseFloat(req.body.Declination ?? "0");
+      if (req.body.RightAscension === undefined) {
+        throw new Error("RightAscension is required");
+      }
+
+      if (req.body.Declination === undefined) {
+        throw new Error("Declination is required");
+      }
+
+      const ra = parseFloat(req.body.RightAscension);
+      const dec = parseFloat(req.body.Declination);
       await celestron.gotoRaDec(ra, dec);
     },
   },
@@ -359,14 +447,30 @@ const telescope: Record<string, any> = {
     set: async function (
       req: TypedRequest<{ RightAscension?: string; Declination?: string }>
     ) {
-      const ra = parseFloat(req.body.RightAscension ?? "0");
-      const dec = parseFloat(req.body.Declination ?? "0");
+      if (req.body.RightAscension === undefined) {
+        throw new Error("RightAscension is required");
+      }
+
+      if (req.body.Declination === undefined) {
+        throw new Error("Declination is required");
+      }
+
+      const ra = parseFloat(req.body.RightAscension);
+      const dec = parseFloat(req.body.Declination);
       await celestron.gotoRaDec(ra, dec);
     },
   },
 
   synctoaltaz: {
-    set: async function (req: TypedRequest) {},
+    set: async (req: TypedRequest<{ Altitude?: string, Azimuth?: string }>) => {
+      if (req.body.Altitude === undefined) {
+        throw new Error("Altitude is required");
+      }
+
+      if (req.body.Azimuth === undefined) {
+        throw new Error("Azimuth is required");
+      }
+    },
   },
 
   synctotarget: {
@@ -374,11 +478,27 @@ const telescope: Record<string, any> = {
   },
 
   slewtoaltazasync: {
-    set: async function (req: TypedRequest) {},
+    set: async (req: TypedRequest<{ Altitude?: string, Azimuth?: string }>) => {
+      if (req.body.Altitude === undefined) {
+        throw new Error("Altitude is required");
+      }
+
+      if (req.body.Azimuth === undefined) {
+        throw new Error("Azimuth is required");
+      }
+    },
   },
 
   slewtoaltaz: {
-    set: async function (req: TypedRequest) {},
+    set: async (req: TypedRequest<{ Altitude?: string, Azimuth?: string }>) => {
+      if (req.body.Altitude === undefined) {
+        throw new Error("Altitude is required");
+      }
+
+      if (req.body.Azimuth === undefined) {
+        throw new Error("Azimuth is required");
+      }
+    },
   },
 
   slewtotarget: {
@@ -435,7 +555,15 @@ const telescope: Record<string, any> = {
   },
 
   pulseguide: {
-    set: function (req: TypedRequest) {
+    set: function (req: TypedRequest<{ Duration?: string, Direction?: string }>) {
+      if (req.body.Duration === undefined) {
+        throw new Error("Duration is required");
+      }
+
+      if (req.body.Direction === undefined) {
+        throw new Error("Direction is required");
+      }
+
       this.ispulseguiding.value = false;
     },
   },
@@ -695,15 +823,6 @@ const telescope: Record<string, any> = {
 app.all(
   "/api/v1/:device_type/:device_number/:operation",
   async (req: TypedRequest, res: TypedResponse) => {
-    const fixCase = (obj: Transaction) => {
-      Object.keys(obj).forEach((k) => {
-        const lower = k.toLowerCase();
-
-        if (lower === "clienttransactionid") obj.ClientTransactionID = obj[k];
-        if (lower === "clientid") obj.ClientID = obj[k];
-      });
-    };
-
     //console.log(req.method, req.url)
     //console.log(req.query)
 
@@ -736,8 +855,6 @@ app.all(
     };
 
     if (req.method === "GET") {
-      fixCase(req.query);
-
       const clientID = parseInt(req.query.ClientID);
       if (clientID === null || isNaN(clientID) || clientID < 0) {
         return res.status(400).send("Invalid ClientID");
@@ -770,7 +887,10 @@ app.all(
 
       console.log(req.method, req.url, req.body);
 
-      fixCase(req.body);
+      const clientIDKey = Object.keys(req.body).find(k => k.toLowerCase() === 'clientid')
+      if (clientIDKey) {
+        req.body.ClientID = req.body[clientIDKey]
+      }
 
       if (
         data.ClientTransactionID === null ||
