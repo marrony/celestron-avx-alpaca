@@ -1,5 +1,5 @@
 import express from "express";
-
+import { program, InvalidArgumentError } from "commander";
 import {
   CelestronAVX,
   TrackingModes,
@@ -7,10 +7,39 @@ import {
   AlignmentModes,
 } from "./serial.js";
 
-const app = express();
-const port = 3000;
+function parseIntOption(value: string) {
+  const parsedValue = parseInt(value, 10);
 
-const celestron = new CelestronAVX({ simulator: true });
+  if (isNaN(parsedValue)) {
+    throw new InvalidArgumentError("Not a number.");
+  }
+
+  return parsedValue;
+}
+
+const pkg = require("../package.json");
+
+program.name(pkg.name).description(pkg.description).version(pkg.version);
+
+program.option("-d, --device <string>", "USB device", "/dev/ttyUSB0");
+
+program.option("-b, --baud <number>", "Baud rate", parseIntOption, 9600);
+
+program.option("-p, --port <number>", "Port to listen", parseIntOption, 11111);
+
+program.option("-s, --simulator", "Runs the simulator", false);
+
+program.parse();
+
+const options = program.opts();
+const app = express();
+
+const port = options.port;
+const path = options.device;
+const baudRate = options.baud;
+const simulator = options.simulator;
+
+const celestron = new CelestronAVX({ path, baudRate, simulator });
 
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
@@ -18,41 +47,65 @@ app.use(express.urlencoded({ extended: true }));
 const caseInsensitive = (obj: Record<string, any>) => {
   return new Proxy(obj, {
     get: (target, name) => {
-      const prop = Object.keys(target).find(key => key.toLowerCase() === name.toString().toLowerCase())
-      return prop ? target[prop] : undefined
-    }
-  })
-}
+      const prop = Object.keys(target).find(
+        (key) => key.toLowerCase() === name.toString().toLowerCase()
+      );
+      return prop ? target[prop] : undefined;
+    },
+  });
+};
 
 app.use((req, res, next) => {
-  req.query = caseInsensitive(req.query)
-  //req.body = caseInsensitive(req.body)
-
+  req.query = caseInsensitive(req.query);
   next();
 });
 
-type Transaction = {
+type AlpacaRequest<T = {}> = {
   ClientID: string;
   ClientTransactionID: string;
-  [key: string]: string;
+} & T;
+
+type AlpacaResponse<T = any> = {
+  ErrorNumber: number;
+  ErrorMessage: string;
+  Value: T;
+  ServerTransactionID: number;
+  ClientTransactionID: number;
+};
+
+type AlpacaOperation<T = any> = {
+  get?: (req: AlpacaRequest) => Promise<T>;
+  set?: (req: AlpacaRequest) => Promise<void>;
+};
+
+type AlpacaProperty<T> = AlpacaOperation<T> & {
+  value: T;
+};
+
+type AlpacaReadOnlyProperty<T> = AlpacaProperty<T> & {
+  get: (req: AlpacaRequest) => Promise<T>;
+};
+
+type AlpacaReadWriteProperty<T> = AlpacaProperty<T> & {
+  get: (req: AlpacaRequest) => Promise<T>;
+  set: (req: AlpacaRequest) => Promise<void>;
+};
+
+type AlpacaConstant<T> = AlpacaOperation<T> & {
+  get: (req: AlpacaRequest) => Promise<T>;
+};
+
+type AlpacaMethod = AlpacaOperation & {
+  set: (req: AlpacaRequest) => Promise<void>;
 };
 
 interface TypedRequest<T = {}> extends express.Request {
-  query: Transaction & T;
-  body: Transaction & T;
-}
-
-interface AlpacaResponse {
-  ErrorNumber: number;
-  ErrorMessage: string;
-  Value: any;
-  ServerTransactionID: number;
-  ClientTransactionID: number;
+  query: AlpacaRequest<T>;
+  body: AlpacaRequest<T>;
 }
 
 interface TypedResponse extends express.Response<AlpacaResponse | string> {}
 
-//GET /management/apiversions?ClientID=4030&ClientTransactionID=3
 app.get("/management/apiversions", (req: TypedRequest, res: TypedResponse) => {
   res.status(200).json({
     Value: [1, 2, 3, 4],
@@ -63,7 +116,6 @@ app.get("/management/apiversions", (req: TypedRequest, res: TypedResponse) => {
   });
 });
 
-//GET /management/v1/description?ClientID=4030&ClientTransactionID=3
 app.get(
   "/management/v1/description",
   (req: TypedRequest, res: TypedResponse) => {
@@ -82,7 +134,6 @@ app.get(
   }
 );
 
-//GET /management/v1/configureddevices?ClientID=4030&ClientTransactionID=28
 app.get(
   "/management/v1/configureddevices",
   async (req: TypedRequest, res: TypedResponse) => {
@@ -105,18 +156,20 @@ app.get(
   }
 );
 
-const telescope: Record<string, any> = {
-  connected: {
+class TelescopeEndpoint {
+  [key: string]: AlpacaOperation;
+
+  connected: AlpacaReadWriteProperty<boolean> = {
     value: false,
-    get: function (req: TypedRequest) {
+    get: async (req: AlpacaRequest) => {
       return this.connected.value;
     },
-    set: function (req: TypedRequest<{ Connected?: string }>) {
-      if (req.body.Connected === undefined) {
+    set: async (req: AlpacaRequest<{ Connected?: string }>) => {
+      if (req.Connected === undefined) {
         throw new Error("Connected is required");
       }
 
-      const connected = req.body.Connected.toLowerCase();
+      const connected = req.Connected.toLowerCase();
 
       if (connected === "true" || connected === "false") {
         this.connected.value = connected === "true";
@@ -124,25 +177,11 @@ const telescope: Record<string, any> = {
         throw new Error("Invalid connected value");
       }
     },
-  },
+  };
 
-  slewing: {
-    value: false,
-    get: async function (req: TypedRequest) {
-      return this.slewing.value;
-    },
-  },
-
-  ispulseguiding: {
-    value: false,
-    get: async function (req: TypedRequest) {
-      return this.ispulseguiding.value;
-    },
-  },
-
-  tracking: {
+  tracking: AlpacaReadWriteProperty<boolean | undefined> = {
     value: undefined,
-    get: async function (req: TypedRequest) {
+    get: async (req: AlpacaRequest) => {
       if (this.tracking.value === undefined) {
         const trackingMode = await celestron.getTrackingMode();
         this.tracking.value = trackingMode !== TrackingModes.Off;
@@ -150,12 +189,12 @@ const telescope: Record<string, any> = {
 
       return this.tracking.value;
     },
-    set: async function (req: TypedRequest<{ Tracking?: string }>) {
-      if (req.body.Tracking === undefined) {
+    set: async (req: AlpacaRequest<{ Tracking?: string }>) => {
+      if (req.Tracking === undefined) {
         throw new Error("Tracking is required");
       }
 
-      const tracking = req.body.Tracking.toLowerCase();
+      const tracking = req.Tracking.toLowerCase();
 
       if (tracking === "true" || tracking === "false") {
         if (tracking === "true") {
@@ -169,187 +208,202 @@ const telescope: Record<string, any> = {
         throw new Error("Invalid tracking value");
       }
     },
-  },
+  };
 
-  rightascensionrate: {
+  rightascensionrate: AlpacaReadWriteProperty<number> = {
     value: 0,
-    get: async function (req: TypedRequest) {
+    get: async (req: AlpacaRequest) => {
       return this.rightascensionrate.value;
     },
-    set: async function (req: TypedRequest<{ RightAscensionRate?: string }>) {
-      if (req.body.RightAscensionRate === undefined) {
+    set: async (req: AlpacaRequest<{ RightAscensionRate?: string }>) => {
+      if (req.RightAscensionRate === undefined) {
         throw new Error("RightAscensionRate is required");
       }
     },
-  },
+  };
 
-  declinationrate: {
+  declinationrate: AlpacaReadWriteProperty<number> = {
     value: 0,
-    get: async function (req: TypedRequest) {
+    get: async (req: AlpacaRequest) => {
       return this.declinationrate.value;
     },
-    set: async function (req: TypedRequest<{ DeclinationRate?: string }>) {
-      if (req.body.DeclinationRate === undefined) {
+    set: async (req: AlpacaRequest<{ DeclinationRate?: string }>) => {
+      if (req.DeclinationRate === undefined) {
         throw new Error("DeclinationRate is required");
       }
     },
-  },
+  };
 
-  doesrefraction: {
+  doesrefraction: AlpacaReadWriteProperty<number> = {
     value: 0,
-    get: async function (req: TypedRequest) {
+    get: async (req: AlpacaRequest) => {
       return this.doesrefraction.value;
     },
-    set: async function (req: TypedRequest<{ DoesRefraction?: string }>) {
-      if (req.body.DoesRefraction === undefined) {
+    set: async (req: AlpacaRequest<{ DoesRefraction?: string }>) => {
+      if (req.DoesRefraction === undefined) {
         throw new Error("DoesRefraction is required");
       }
     },
-  },
+  };
 
-  guideratedeclination: {
+  guideratedeclination: AlpacaReadWriteProperty<number> = {
     value: 0,
-    get: async function (req: TypedRequest) {
+    get: async (req: AlpacaRequest) => {
       return this.guideratedeclination.value;
     },
-    set: async function (req: TypedRequest<{ GuideRateDeclination?: string }>) {
-      if (req.body.GuideRateDeclination === undefined) {
+    set: async (req: AlpacaRequest<{ GuideRateDeclination?: string }>) => {
+      if (req.GuideRateDeclination === undefined) {
         throw new Error("GuideRateDeclination is required");
       }
     },
-  },
+  };
 
-  guideraterightascension: {
+  guideraterightascension: AlpacaReadWriteProperty<number> = {
     value: 0,
-    get: async function (req: TypedRequest) {
+    get: async (req: AlpacaRequest) => {
       return this.guideratedeclination.value;
     },
-    set: async function (req: TypedRequest<{ GuideRateRightAscension?: string }>) {
-      if (req.body.GuideRateRightAscension === undefined) {
+    set: async (req: AlpacaRequest<{ GuideRateRightAscension?: string }>) => {
+      if (req.GuideRateRightAscension === undefined) {
         throw new Error("GuideRateRightAscension is required");
       }
     },
-  },
+  };
 
-  sideofpier: {
+  sideofpier: AlpacaReadWriteProperty<number> = {
     value: 0,
-    get: async function (req: TypedRequest) {
+    get: async (req: AlpacaRequest) => {
       return this.sideofpier.value;
     },
-    set: async function (req: TypedRequest<{ SideOfPier?: string }>) {
-      if (req.body.SideOfPier === undefined) {
+    set: async (req: AlpacaRequest<{ SideOfPier?: string }>) => {
+      if (req.SideOfPier === undefined) {
         throw new Error("SideOfPier is required");
       }
     },
-  },
+  };
 
-  siteelevation: {
+  siteelevation: AlpacaReadWriteProperty<number> = {
     value: 0,
-    get: async function (req: TypedRequest) {
+    get: async (req: AlpacaRequest) => {
       return this.siteelevation.value;
     },
-    set: async function (req: TypedRequest<{ SiteElevation?: string }>) {
-      if (req.body.SiteElevation === undefined) {
+    set: async (req: AlpacaRequest<{ SiteElevation?: string }>) => {
+      if (req.SiteElevation === undefined) {
         throw new Error("SiteElevation is required");
       }
     },
-  },
+  };
 
-  sitelatitude: {
+  sitelatitude: AlpacaReadWriteProperty<number> = {
     value: 0,
-    get: async function (req: TypedRequest) {
+    get: async (req: AlpacaRequest) => {
       return this.sitelatitude.value;
     },
-    set: async function (req: TypedRequest<{ SiteLatitude?: string }>) {
-      if (req.body.SiteLatitude === undefined) {
+    set: async (req: AlpacaRequest<{ SiteLatitude?: string }>) => {
+      if (req.SiteLatitude === undefined) {
         throw new Error("SiteLatitude is required");
       }
     },
-  },
+  };
 
-  sitelongitude: {
+  sitelongitude: AlpacaReadWriteProperty<number> = {
     value: 0,
-    get: async function (req: TypedRequest) {
+    get: async (req: AlpacaRequest) => {
       return this.sitelongitude.value;
     },
-    set: async function (req: TypedRequest<{ SiteLongitude?: string }>) {
-      if (req.body.SiteLongitude === undefined) {
+    set: async (req: AlpacaRequest<{ SiteLongitude?: string }>) => {
+      if (req.SiteLongitude === undefined) {
         throw new Error("SiteLongitude is required");
       }
     },
-  },
+  };
 
-  slewsettletime: {
+  slewsettletime: AlpacaReadWriteProperty<number> = {
     value: 0,
-    get: async function (req: TypedRequest) {
+    get: async (req: AlpacaRequest) => {
       return this.slewsettletime.value;
     },
-    set: async function (req: TypedRequest<{ SlewSettleTime?: string }>) {
-      if (req.body.SlewSettleTime === undefined) {
+    set: async (req: AlpacaRequest<{ SlewSettleTime?: string }>) => {
+      if (req.SlewSettleTime === undefined) {
         throw new Error("SlewSettleTime is required");
       }
     },
-  },
+  };
 
-  targetdeclination: {
+  targetdeclination: AlpacaReadWriteProperty<number> = {
     value: 0,
-    get: async function (req: TypedRequest) {
+    get: async (req: AlpacaRequest) => {
       return this.targetdeclination.value;
     },
-    set: async function (req: TypedRequest<{ TargetDeclination?: string }>) {
-      if (req.body.TargetDeclination === undefined) {
+    set: async (req: AlpacaRequest<{ TargetDeclination?: string }>) => {
+      if (req.TargetDeclination === undefined) {
         throw new Error("TargetDeclination is required");
       }
     },
-  },
+  };
 
-  targetrightascension: {
+  targetrightascension: AlpacaReadWriteProperty<number> = {
     value: 0,
-    get: async function (req: TypedRequest) {
+    get: async (req: AlpacaRequest) => {
       return this.targetrightascension.value;
     },
-    set: async function (req: TypedRequest<{ TargetRightAscension?: string }>) {
-      if (req.body.TargetRightAscension === undefined) {
+    set: async (req: AlpacaRequest<{ TargetRightAscension?: string }>) => {
+      if (req.TargetRightAscension === undefined) {
         throw new Error("TargetRightAscension is required");
       }
     },
-  },
+  };
 
-  trackingrate: {
+  trackingrate: AlpacaReadWriteProperty<number> = {
     value: 0,
-    get: async function (req: TypedRequest) {
+    get: async (req: AlpacaRequest) => {
       return this.trackingrate.value;
     },
-    set: async function (req: TypedRequest<{ TrackingRate?: string }>) {
-      if (req.body.TrackingRate === undefined) {
+    set: async (req: AlpacaRequest<{ TrackingRate?: string }>) => {
+      if (req.TrackingRate === undefined) {
         throw new Error("TrackingRate is required");
       }
     },
-  },
+  };
 
-  utcdate: {
+  utcdate: AlpacaReadWriteProperty<number> = {
     value: 0,
-    get: async function (req: TypedRequest) {
+    get: async (req: AlpacaRequest) => {
       return this.utcdate.value;
     },
-    set: async function (req: TypedRequest<{ UTCDate?: string }>) {
-      if (req.body.UTCDate === undefined) {
+    set: async (req: AlpacaRequest<{ UTCDate?: string }>) => {
+      if (req.UTCDate === undefined) {
         throw new Error("UTCDate is required");
       }
     },
-  },
+  };
 
-  siderealtime: {
+  // read-only properties
+
+  slewing: AlpacaReadOnlyProperty<boolean> = {
+    value: false,
+    get: async (req: AlpacaRequest) => {
+      return this.slewing.value;
+    },
+  };
+
+  ispulseguiding: AlpacaReadOnlyProperty<boolean> = {
+    value: false,
+    get: async (req: AlpacaRequest) => {
+      return this.ispulseguiding.value;
+    },
+  };
+
+  siderealtime: AlpacaReadOnlyProperty<number> = {
     value: 0,
-    get: async function (req: TypedRequest) {
+    get: async (req: AlpacaRequest) => {
       return this.sideofpier.value;
     },
-    //set: async function (req: TypedRequest) {}
-  },
+  };
 
-  rightascension: {
+  rightascension: AlpacaReadOnlyProperty<number> = {
     value: 0,
-    get: async function (req: TypedRequest) {
+    get: async (req: AlpacaRequest) => {
       const [ra, dec] = await celestron.getRaDec();
       this.rightascension.value = ra;
       this.declination.value = dec;
@@ -367,20 +421,20 @@ const telescope: Record<string, any> = {
 
       return ra;
     },
-  },
+  };
 
-  declination: {
+  declination: AlpacaReadOnlyProperty<number> = {
     value: 0,
-    get: async function (req: TypedRequest) {
+    get: async (req: AlpacaRequest) => {
       //const [_, dec] = await celestron.getRaDec()
       //return dec
       return this.declination.value;
     },
-  },
+  };
 
-  altitude: {
+  altitude: AlpacaReadOnlyProperty<number> = {
     value: 0,
-    get: async function (req: TypedRequest) {
+    get: async (req: AlpacaRequest) => {
       const [alt, azm] = await celestron.getAltAzm();
 
       this.altitude.value = alt;
@@ -388,146 +442,152 @@ const telescope: Record<string, any> = {
 
       return alt;
     },
-  },
+  };
 
-  azimuth: {
+  azimuth: AlpacaReadOnlyProperty<number> = {
     value: 0,
-    get: async function (req: TypedRequest) {
+    get: async (req: AlpacaRequest) => {
       return this.azimuth.value;
     },
-  },
+  };
 
-  destinationsideofpier: {
+  destinationsideofpier: AlpacaReadOnlyProperty<number> = {
     value: 0,
-    get: async function (req: TypedRequest) {
+    get: async (req: AlpacaRequest) => {
       return this.destinationsideofpier.value;
     },
-  },
+  };
 
   ////////////////////////////////////////////////////////////////////
 
   // methods
-  slewtocoordinatesasync: {
-    set: async function (
-      req: TypedRequest<{ RightAscension?: string; Declination?: string }>
-    ) {
-      if (req.body.RightAscension === undefined) {
+  slewtocoordinatesasync: AlpacaMethod = {
+    set: async (
+      req: AlpacaRequest<{ RightAscension?: string; Declination?: string }>
+    ) => {
+      if (req.RightAscension === undefined) {
         throw new Error("RightAscension is required");
       }
 
-      if (req.body.Declination === undefined) {
+      if (req.Declination === undefined) {
         throw new Error("Declination is required");
       }
 
-      const ra = parseFloat(req.body.RightAscension);
-      const dec = parseFloat(req.body.Declination);
+      const ra = parseFloat(req.RightAscension);
+      const dec = parseFloat(req.Declination);
       await celestron.gotoRaDec(ra, dec);
     },
-  },
+  };
 
-  slewtocoordinates: {
-    set: async function (
-      req: TypedRequest<{ RightAscension?: string; Declination?: string }>
-    ) {
-      if (req.body.RightAscension === undefined) {
+  slewtocoordinates: AlpacaMethod = {
+    set: async (
+      req: AlpacaRequest<{ RightAscension?: string; Declination?: string }>
+    ) => {
+      if (req.RightAscension === undefined) {
         throw new Error("RightAscension is required");
       }
 
-      if (req.body.Declination === undefined) {
+      if (req.Declination === undefined) {
         throw new Error("Declination is required");
       }
 
-      const ra = parseFloat(req.body.RightAscension);
-      const dec = parseFloat(req.body.Declination);
+      const ra = parseFloat(req.RightAscension);
+      const dec = parseFloat(req.Declination);
       await celestron.gotoRaDec(ra, dec);
     },
-  },
+  };
 
-  synctocoordinates: {
-    set: async function (
-      req: TypedRequest<{ RightAscension?: string; Declination?: string }>
-    ) {
-      if (req.body.RightAscension === undefined) {
+  synctocoordinates: AlpacaMethod = {
+    set: async (
+      req: AlpacaRequest<{ RightAscension?: string; Declination?: string }>
+    ) => {
+      if (req.RightAscension === undefined) {
         throw new Error("RightAscension is required");
       }
 
-      if (req.body.Declination === undefined) {
+      if (req.Declination === undefined) {
         throw new Error("Declination is required");
       }
 
-      const ra = parseFloat(req.body.RightAscension);
-      const dec = parseFloat(req.body.Declination);
+      const ra = parseFloat(req.RightAscension);
+      const dec = parseFloat(req.Declination);
       await celestron.gotoRaDec(ra, dec);
     },
-  },
+  };
 
-  synctoaltaz: {
-    set: async (req: TypedRequest<{ Altitude?: string, Azimuth?: string }>) => {
-      if (req.body.Altitude === undefined) {
+  synctoaltaz: AlpacaMethod = {
+    set: async (
+      req: AlpacaRequest<{ Altitude?: string; Azimuth?: string }>
+    ) => {
+      if (req.Altitude === undefined) {
         throw new Error("Altitude is required");
       }
 
-      if (req.body.Azimuth === undefined) {
+      if (req.Azimuth === undefined) {
         throw new Error("Azimuth is required");
       }
     },
-  },
+  };
 
-  synctotarget: {
-    set: async function (req: TypedRequest) {},
-  },
+  synctotarget: AlpacaMethod = {
+    set: async (req: AlpacaRequest) => {},
+  };
 
-  slewtoaltazasync: {
-    set: async (req: TypedRequest<{ Altitude?: string, Azimuth?: string }>) => {
-      if (req.body.Altitude === undefined) {
+  slewtoaltazasync: AlpacaMethod = {
+    set: async (
+      req: AlpacaRequest<{ Altitude?: string; Azimuth?: string }>
+    ) => {
+      if (req.Altitude === undefined) {
         throw new Error("Altitude is required");
       }
 
-      if (req.body.Azimuth === undefined) {
+      if (req.Azimuth === undefined) {
         throw new Error("Azimuth is required");
       }
     },
-  },
+  };
 
-  slewtoaltaz: {
-    set: async (req: TypedRequest<{ Altitude?: string, Azimuth?: string }>) => {
-      if (req.body.Altitude === undefined) {
+  slewtoaltaz: AlpacaMethod = {
+    set: async (
+      req: AlpacaRequest<{ Altitude?: string; Azimuth?: string }>
+    ) => {
+      if (req.Altitude === undefined) {
         throw new Error("Altitude is required");
       }
 
-      if (req.body.Azimuth === undefined) {
+      if (req.Azimuth === undefined) {
         throw new Error("Azimuth is required");
       }
     },
-  },
+  };
 
-  slewtotarget: {
-    set: async function (req: TypedRequest) {},
-  },
+  slewtotarget: AlpacaMethod = {
+    set: async (req: AlpacaRequest) => {},
+  };
 
-  slewtotargetasync: {
-    set: async function (req: TypedRequest) {},
-  },
+  slewtotargetasync: AlpacaMethod = {
+    set: async (req: AlpacaRequest) => {},
+  };
 
-  abortslew: {
-    set: async function (req: TypedRequest) {
+  abortslew: AlpacaMethod = {
+    set: async (req: AlpacaRequest) => {
       this.slewing.value = false;
       this.tracking.value = true;
     },
-  },
+  };
 
-  moveaxis: {
-    set: async function (req: TypedRequest<{ Axis?: string; Rate?: string }>) {
-      if (req.body.Axis === undefined) {
+  moveaxis: AlpacaMethod = {
+    set: async (req: AlpacaRequest<{ Axis?: string; Rate?: string }>) => {
+      if (req.Axis === undefined) {
         throw new Error("Axis is required");
       }
 
-      if (req.body.Rate === undefined) {
+      if (req.Rate === undefined) {
         throw new Error("Rate is required");
       }
 
-      const axis = parseInt(req.body.Axis);
-      const rate = parseFloat(req.body.Rate);
+      const axis = parseInt(req.Axis);
+      const rate = parseFloat(req.Rate);
 
       if (axis === null || isNaN(axis)) {
         throw new Error("Invalid axis");
@@ -552,180 +612,182 @@ const telescope: Record<string, any> = {
         await celestron.setTrackingMode(TrackingModes.EqNorth);
       }
     },
-  },
+  };
 
-  pulseguide: {
-    set: function (req: TypedRequest<{ Duration?: string, Direction?: string }>) {
-      if (req.body.Duration === undefined) {
+  pulseguide: AlpacaMethod = {
+    set: async (
+      req: AlpacaRequest<{ Duration?: string; Direction?: string }>
+    ) => {
+      if (req.Duration === undefined) {
         throw new Error("Duration is required");
       }
 
-      if (req.body.Direction === undefined) {
+      if (req.Direction === undefined) {
         throw new Error("Direction is required");
       }
 
       this.ispulseguiding.value = false;
     },
-  },
+  };
 
-  park: {
-    set: function (req: TypedRequest) {},
-  },
+  park: AlpacaMethod = {
+    set: async (req: AlpacaRequest) => {},
+  };
 
-  unpark: {
-    set: function (req: TypedRequest) {},
-  },
+  unpark: AlpacaMethod = {
+    set: async (req: AlpacaRequest) => {},
+  };
 
-  setpark: {
-    set: function (req: TypedRequest) {},
-  },
+  setpark: AlpacaMethod = {
+    set: async (req: AlpacaRequest) => {},
+  };
 
-  findhome: {
-    set: function (req: TypedRequest) {},
-  },
+  findhome: AlpacaMethod = {
+    set: async (req: AlpacaRequest) => {},
+  };
 
   ////////////////////////////////////////////////////////////////////
 
   // features
-  canslew: {
-    get: function (req: TypedRequest) {
+  canslew: AlpacaConstant<boolean> = {
+    get: async (req: AlpacaRequest) => {
       return false;
     },
-  },
+  };
 
-  canslewasync: {
-    get: function (req: TypedRequest) {
+  canslewasync: AlpacaConstant<boolean> = {
+    get: async (req: AlpacaRequest) => {
       return true;
     },
-  },
+  };
 
-  canslewaltaz: {
-    get: function (req: TypedRequest) {
+  canslewaltaz: AlpacaConstant<boolean> = {
+    get: async (req: AlpacaRequest) => {
       return false;
     },
-  },
+  };
 
-  canslewaltazasync: {
-    get: function (req: TypedRequest) {
+  canslewaltazasync: AlpacaConstant<boolean> = {
+    get: async (req: AlpacaRequest) => {
       return true;
     },
-  },
+  };
 
-  cansync: {
-    get: function (req: TypedRequest) {
+  cansync: AlpacaConstant<boolean> = {
+    get: async (req: AlpacaRequest) => {
       return true;
     },
-  },
+  };
 
-  cansyncaltaz: {
-    get: function (req: TypedRequest) {
+  cansyncaltaz: AlpacaConstant<boolean> = {
+    get: async (req: AlpacaRequest) => {
       return true;
     },
-  },
+  };
 
-  canpark: {
-    get: function (req: TypedRequest) {
+  canpark: AlpacaConstant<boolean> = {
+    get: async (req: AlpacaRequest) => {
       return false;
     },
-  },
+  };
 
-  canunpark: {
-    get: function (req: TypedRequest) {
+  canunpark: AlpacaConstant<boolean> = {
+    get: async (req: AlpacaRequest) => {
       return false;
     },
-  },
+  };
 
-  cansettracking: {
-    get: function (req: TypedRequest) {
+  cansettracking: AlpacaConstant<boolean> = {
+    get: async (req: AlpacaRequest) => {
       return true;
     },
-  },
+  };
 
-  cansetrightascensionrate: {
-    get: function (req: TypedRequest) {
+  cansetrightascensionrate: AlpacaConstant<boolean> = {
+    get: async (req: AlpacaRequest) => {
       return true;
     },
-  },
+  };
 
-  cansetdeclinationrate: {
-    get: function (req: TypedRequest) {
+  cansetdeclinationrate: AlpacaConstant<boolean> = {
+    get: async (req: AlpacaRequest) => {
       return true;
     },
-  },
+  };
 
-  cansetguiderates: {
-    get: function (req: TypedRequest) {
+  cansetguiderates: AlpacaConstant<boolean> = {
+    get: async (req: AlpacaRequest) => {
       return false;
     },
-  },
+  };
 
-  cansetpark: {
-    get: function (req: TypedRequest) {
+  cansetpark: AlpacaConstant<boolean> = {
+    get: async (req: AlpacaRequest) => {
       return true;
     },
-  },
+  };
 
-  cansetpierside: {
-    get: function (req: TypedRequest) {
+  cansetpierside: AlpacaConstant<boolean> = {
+    get: async (req: AlpacaRequest) => {
       return false;
     },
-  },
+  };
 
-  canmoveaxis: {
-    get: function (req: TypedRequest) {
+  canmoveaxis: AlpacaConstant<boolean> = {
+    get: async (req: AlpacaRequest) => {
       return true;
     },
-  },
+  };
 
-  canpulseguide: {
-    get: function (req: TypedRequest) {
+  canpulseguide: AlpacaConstant<boolean> = {
+    get: async (req: AlpacaRequest) => {
       return false;
     },
-  },
+  };
 
-  name: {
-    get: function (req: TypedRequest) {
+  name: AlpacaConstant<string> = {
+    get: async (req: AlpacaRequest) => {
       return "Telescope";
     },
-  },
+  };
 
-  interfaceversion: {
-    get: function (req: TypedRequest) {
+  interfaceversion: AlpacaConstant<number> = {
+    get: async (req: AlpacaRequest) => {
       return 0;
     },
-  },
+  };
 
-  driverinfo: {
-    get: function (req: TypedRequest) {
+  driverinfo: AlpacaConstant<string> = {
+    get: async (req: AlpacaRequest) => {
       return "Telescope";
     },
-  },
+  };
 
-  driverversion: {
-    get: function (req: TypedRequest) {
+  driverversion: AlpacaConstant<string> = {
+    get: async (req: AlpacaRequest) => {
       return "0.0.1";
     },
-  },
+  };
 
-  description: {
-    get: function (req: TypedRequest) {
+  description: AlpacaConstant<string> = {
+    get: async (req: AlpacaRequest) => {
       return "Telescope";
     },
-  },
+  };
 
-  supportedactions: {
-    get: function (req: TypedRequest) {
+  supportedactions: AlpacaConstant<Array<string>> = {
+    get: async (req: AlpacaRequest) => {
       return [];
     },
-  },
+  };
 
-  axisrates: {
-    get: async function (req: TypedRequest<{ Axis?: string }>): Promise<any> {
-      if (req.query.Axis === undefined) {
+  axisrates: AlpacaConstant<Array<any>> = {
+    get: async (req: AlpacaRequest<{ Axis?: string }>): Promise<any> => {
+      if (req.Axis === undefined) {
         throw new Error("Axis is required");
       }
 
-      const axis = parseInt(req.query.Axis);
+      const axis = parseInt(req.Axis);
 
       if (axis === null || isNaN(axis)) {
         throw new Error("Invalid axis");
@@ -775,50 +837,52 @@ const telescope: Record<string, any> = {
         },
       ];
     },
-  },
+  };
 
-  equatorialsystem: {
-    get: function (req: TypedRequest) {
+  equatorialsystem: AlpacaConstant<EquatorialSystems> = {
+    get: async (req: AlpacaRequest) => {
       return EquatorialSystems.JNow;
     },
-  },
+  };
 
-  alignmentmode: {
-    get: function (req: TypedRequest) {
+  alignmentmode: AlpacaConstant<AlignmentModes> = {
+    get: async (req: AlpacaRequest) => {
       return AlignmentModes.German;
     },
-  },
+  };
 
-  aperturearea: {
-    get: function (req: TypedRequest) {
+  aperturearea: AlpacaConstant<number> = {
+    get: async (req: AlpacaRequest) => {
       return 0;
     },
-  },
+  };
 
-  aperturediameter: {
-    get: function (req: TypedRequest) {
+  aperturediameter: AlpacaConstant<number> = {
+    get: async (req: AlpacaRequest) => {
       return 0;
     },
-  },
+  };
 
-  focallength: {
-    get: function (req: TypedRequest) {
+  focallength: AlpacaConstant<number> = {
+    get: async (req: AlpacaRequest) => {
       return 0;
     },
-  },
+  };
 
-  athome: {
-    get: function (req: TypedRequest) {
+  athome: AlpacaConstant<boolean> = {
+    get: async (req: AlpacaRequest) => {
       return false;
     },
-  },
+  };
 
-  atpark: {
-    get: function (req: TypedRequest) {
+  atpark: AlpacaConstant<boolean> = {
+    get: async (req: AlpacaRequest) => {
       return false;
     },
-  },
-};
+  };
+}
+
+const telescope = new TelescopeEndpoint();
 
 app.all(
   "/api/v1/:device_type/:device_number/:operation",
@@ -854,7 +918,7 @@ app.all(
       ServerTransactionID: 0,
     };
 
-    if (req.method === "GET") {
+    if (req.method === "GET" && operation.get) {
       const clientID = parseInt(req.query.ClientID);
       if (clientID === null || isNaN(clientID) || clientID < 0) {
         return res.status(400).send("Invalid ClientID");
@@ -872,12 +936,12 @@ app.all(
       data.ServerTransactionID = parseInt(req.query.ClientTransactionID);
 
       try {
-        data.Value = await operation.get.call(telescope, req);
+        data.Value = await operation.get(req.query);
         console.log(req.method, req.url, data.Value);
       } catch (e) {
         return res.status(400).send("Bad parameter");
       }
-    } else if (req.method === "PUT") {
+    } else if (req.method === "PUT" && operation.set) {
       console.log(req.method, req.url, req.body);
 
       // according to conform tool if ClientID and ClientTransactionID
@@ -907,13 +971,12 @@ app.all(
       data.ServerTransactionID = 1;
 
       try {
-        await operation.set.call(telescope, req);
+        await operation.set(req.body);
       } catch (e) {
         return res.status(400).send("Bad parameter");
       }
     }
 
-    //console.log(data)
     res.status(200).json(data);
   }
 );
@@ -926,5 +989,5 @@ app.all("*", (req: TypedRequest, res: TypedResponse) => {
 });
 
 app.listen(port, () => {
-  console.log(`Example app listening on port ${port}`);
+  console.log(`App listening on port ${port}`);
 });

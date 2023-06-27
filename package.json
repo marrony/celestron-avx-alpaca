@@ -1,13 +1,14 @@
 {
   "name": "celestron-avx-alpaca",
-  "version": "0.0.2",
+  "version": "0.0.3",
+  "description": "Celestron AVX Alpaca Driver for Raspberry PI",
   "author": "Marrony Neris",
   "files": [
     "bin/",
     "build/"
   ],
   "bin": {
-    "alpaca-cli": "bin/cli.js"
+    "celestron-avx-alpaca": "bin/cli.js"
   },
   "dependencies": {
     "commander": "^11.0.0",

@@ -354,17 +354,3 @@ export class CelestronAVX {
     return String.fromCharCode(buffer[0]);
   }
 }
-
-/*
-(async () => {
-  const telescope = new CelestronAVX()
-
-  console.log(await telescope.version())
-  //console.log(await telescope.model())
-  console.log(await telescope.echo('x'))
-  console.log(await telescope.isAlignComplete())
-  console.log(await telescope.isGotoInProgress())
-
-  await telescope.close()
-})()
-*/
