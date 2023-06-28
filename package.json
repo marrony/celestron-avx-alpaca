@@ -1,11 +1,13 @@
 {
   "name": "celestron-avx-alpaca",
-  "version": "0.0.3",
+  "version": "0.0.6",
   "description": "Celestron AVX Alpaca Driver for Raspberry PI",
   "author": "Marrony Neris",
   "files": [
     "bin/",
-    "build/"
+    "dist/",
+    "binding.cpp",
+    "binding.gyp"
   ],
   "bin": {
     "celestron-avx-alpaca": "bin/cli.js"
@@ -13,7 +15,8 @@
   "dependencies": {
     "commander": "^11.0.0",
     "express": "^4.18.2",
-    "serialport": "^11.0.0"
+    "node-addon-api": "^7.0.0",
+    "node-gyp-build": "^4.6.0"
   },
   "devDependencies": {
     "@tsconfig/node20": "^1.0.1",

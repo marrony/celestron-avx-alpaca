@@ -1,4 +1,14 @@
-import { SerialPort } from "serialport";
+import { join } from "path";
+
+interface Serial {
+  open(opts: { path: string; baudRate: number }): number;
+  close(fd: number): void;
+
+  read(fd: number): Buffer;
+  write(fd: number, data: string | Buffer): number;
+}
+
+const serial = require("node-gyp-build")(join(__dirname, "../")) as Serial;
 
 export enum TrackingModes {
   Off = 0,
@@ -27,39 +37,60 @@ interface Port {
 }
 
 class Commands {
-  static End = 0x23;
-  static Ok = Buffer.from([Commands.End]);
+  static EndOp = 0x23; //#
+  static GetVersionOp = 0x56; // V
+  static GetModelOp = 0x6d; // m
+  static GetRaDecOp = 0x45; // E
+  static GetPreciseRaDecOp = 0x65; // e
+  static GetAltAzmOp = 0x5a; // Z
+  static GetPreciseAltAzmOp = 0x7a; // z
+  static GetTrackingModeOp = 0x74; // t
+  static SetTrackignModeOp = 0x54; //
+  static IsAlignCompleteOp = 0x4a; // J
+  static IsGotoInProgressOp = 0x4c; // L
+  static GotoOp = 0x52; //
+  static CancelGotoOp = 0x4d; // M
+  static SlewOp = 0x50; // P
+  static SlewVariable = 3;
+
+  static Ok = Buffer.from([Commands.EndOp]);
+  static GetVersion = Buffer.from([Commands.GetVersionOp]);
+  static GetModel = Buffer.from([Commands.GetModelOp]);
+  static GetRaDec = Buffer.from([Commands.GetRaDecOp]);
+  static GetPreciseRaDec = Buffer.from([Commands.GetPreciseRaDecOp]);
+  static GetAltAzm = Buffer.from([Commands.GetAltAzmOp]);
+  static GetPreciseAltAzm = Buffer.from([Commands.GetPreciseAltAzmOp]);
+  static GetTrackingMode = Buffer.from([Commands.GetTrackingModeOp]);
+  static IsAlignComplete = Buffer.from([Commands.IsAlignCompleteOp]);
+  static IsGotoInProgress = Buffer.from([Commands.IsGotoInProgressOp]);
+  static CancelGoto = Buffer.from([Commands.CancelGotoOp]);
 }
 
 class SimulatorPort implements Port {
-  constructor() {}
-
   async send_command(cmd: string | Buffer): Promise<Buffer> {
     if (typeof cmd === "string") cmd = Buffer.from(cmd);
 
-    console.log(cmd);
-
     switch (cmd[0]) {
-      case 0x45: // getRaDec
+      case Commands.GetRaDecOp:
         return Buffer.from("AAAA,AAAA#");
 
-      case 0x5a: // getAltAzm
+      case Commands.GetAltAzmOp: // getAltAzm
         return Buffer.from("AAAA,AAAA#");
 
-      case 0x50: //slew
+      case Commands.SlewOp:
         return Commands.Ok;
 
-      case 0x52: //goto
+      case Commands.GotoOp:
         return Commands.Ok;
 
-      case 0x54: //setTrackingMode
+      case Commands.SetTrackignModeOp:
         return Commands.Ok;
 
-      case 0x6d: //model
-        return Buffer.from([20, Commands.End]);
+      case Commands.GetModelOp:
+        return Buffer.from([20, Commands.EndOp]);
 
-      case 0x74: //getTrackingMode
-        return Buffer.from([TrackingModes.EqNorth, Commands.End]);
+      case Commands.GetTrackingModeOp:
+        return Buffer.from([TrackingModes.EqNorth, Commands.EndOp]);
     }
 
     return Buffer.alloc(0);
@@ -69,65 +100,38 @@ class SimulatorPort implements Port {
 }
 
 class TelescopePort implements Port {
-  port: SerialPort;
-  buffer: Buffer;
-  resolve_command: any;
-  reject_command: any;
-  timeout_id?: ReturnType<typeof setTimeout>;
+  fd: number;
 
-  constructor({ path, baudRate }: { path: string; baudRate: number }) {
-    this.port = new SerialPort({ path, baudRate });
-    this.buffer = Buffer.alloc(0);
-
-    this.port.on("data", (data) => {
-      this.buffer = Buffer.concat([this.buffer, data]);
-
-      const length = this.buffer.length;
-
-      //if (length > 0 && this.buffer[length - 1] === 0x23) {
-      if (length > 0 && this.buffer.indexOf(0x23) !== -1) {
-        clearTimeout(this.timeout_id);
-        this.timeout_id = undefined;
-
-        this.resolve_command(this.buffer);
-        console.log("Response", this.buffer, this.buffer.toString());
-
-        this.buffer = Buffer.alloc(0);
-
-        this.resolve_command = undefined;
-        this.reject_command = undefined;
-      }
-    });
+  constructor(opts: { path: string; baudRate: number }) {
+    this.fd = serial.open(opts);
   }
 
   async send_command(cmd: string | Buffer): Promise<Buffer> {
-    if (this.timeout_id) return Promise.reject(new Error("Telescope is busy"));
-
     return new Promise((resolve, reject) => {
-      this.resolve_command = resolve;
-      this.reject_command = reject;
-      this.port.write(cmd);
-      console.log("Command", cmd, cmd.toString());
+      serial.write(this.fd, cmd);
 
-      this.timeout_id = setTimeout(
+      const timeout_id = setTimeout(
         (start) => {
-          if (this.reject_command) {
-            this.reject_command(
-              new Error(
-                `Command ${cmd} timed out after ${Date.now() - start} ms`
-              )
-            );
-            this.reject_command = undefined;
-          }
+          reject(
+            new Error(`Command ${cmd} timed out after ${Date.now() - start} ms`)
+          );
         },
         3500,
         Date.now()
       );
+
+      try {
+        resolve(serial.read(this.fd));
+      } catch (e) {
+        reject(new Error(`Command ${cmd} failed`, { cause: e }));
+      }
+
+      clearTimeout(timeout_id);
     });
   }
 
   async close(): Promise<void> {
-    await this.port.close();
+    serial.close(this.fd);
   }
 }
 
@@ -147,7 +151,7 @@ export class CelestronAVX {
   }
 
   async version(): Promise<string> {
-    const buffer = await this.port.send_command("V");
+    const buffer = await this.port.send_command(Commands.GetVersion);
 
     if (buffer.length !== 3) throw new Error("Invalid size");
 
@@ -158,7 +162,7 @@ export class CelestronAVX {
   }
 
   async model(): Promise<string> {
-    const buffer = await this.port.send_command("m");
+    const buffer = await this.port.send_command(Commands.GetModel);
 
     if (buffer.length !== 2) throw new Error("Invalid size");
 
@@ -191,7 +195,7 @@ export class CelestronAVX {
   }
 
   async getRaDec() {
-    const buffer = await this.port.send_command("E");
+    const buffer = await this.port.send_command(Commands.GetRaDec);
 
     if (buffer.length !== 10) throw new Error("Invalid size");
 
@@ -202,7 +206,7 @@ export class CelestronAVX {
   }
 
   async getPreciseRaDec() {
-    const buffer = await this.port.send_command("e");
+    const buffer = await this.port.send_command(Commands.GetPreciseRaDec);
 
     if (buffer.length !== 18) throw new Error("Invalid size");
 
@@ -213,7 +217,7 @@ export class CelestronAVX {
   }
 
   async getAltAzm() {
-    const buffer = await this.port.send_command("Z");
+    const buffer = await this.port.send_command(Commands.GetAltAzm);
 
     if (buffer.length !== 10) throw new Error("Invalid size");
 
@@ -224,7 +228,7 @@ export class CelestronAVX {
   }
 
   async getPreciseAltAzm() {
-    const buffer = await this.port.send_command("z");
+    const buffer = await this.port.send_command(Commands.GetPreciseAltAzm);
 
     if (buffer.length !== 18) throw new Error("Invalid size");
 
@@ -299,17 +303,24 @@ export class CelestronAVX {
     const direction = rate >= 0 ? 6 : 7;
     const axisOp = axis === 0 ? 16 : 17;
 
-    console.log("MoveAzm", rate, rateAbs, rateHigh, rateLow);
-
     const buffer = await this.port.send_command(
-      Buffer.from([0x50, 3, axisOp, direction, rateHigh, rateLow, 0, 0])
+      Buffer.from([
+        Commands.SlewOp,
+        Commands.SlewVariable,
+        axisOp,
+        direction,
+        rateHigh,
+        rateLow,
+        0,
+        0,
+      ])
     );
 
     if (buffer.length !== 1) throw new Error("Invalid size");
   }
 
   async getTrackingMode() {
-    const buffer = await this.port.send_command("t");
+    const buffer = await this.port.send_command(Commands.GetTrackingMode);
 
     if (buffer.length !== 2) throw new Error("Invalid size");
 
@@ -317,13 +328,15 @@ export class CelestronAVX {
   }
 
   async setTrackingMode(mode: TrackingModes) {
-    const buffer = await this.port.send_command(Buffer.from([0x54, mode]));
+    const buffer = await this.port.send_command(
+      Buffer.from([Commands.SetTrackignModeOp, mode])
+    );
 
     if (buffer.length !== 1) throw new Error("Invalid size");
   }
 
   async isAlignComplete() {
-    const buffer = await this.port.send_command("J");
+    const buffer = await this.port.send_command(Commands.IsAlignComplete);
 
     if (buffer.length !== 2) throw new Error("Invalid size");
 
@@ -331,7 +344,7 @@ export class CelestronAVX {
   }
 
   async isGotoInProgress() {
-    const buffer = await this.port.send_command("L");
+    const buffer = await this.port.send_command(Commands.IsGotoInProgress);
 
     if (buffer.length !== 2) throw new Error("Invalid size");
 
@@ -341,7 +354,7 @@ export class CelestronAVX {
   }
 
   async cancelGoto(): Promise<void> {
-    const buffer = await this.port.send_command("M");
+    const buffer = await this.port.send_command(Commands.CancelGoto);
 
     if (buffer.length !== 1) throw new Error("Invalid size");
   }

@@ -1,4 +1,4 @@
 #!/usr/bin/env node
 
-require('../build/main.js')
+require('../dist/main.js')
 
